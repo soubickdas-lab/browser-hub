@@ -102,18 +102,16 @@ jobs:
           ls -la out
       - uses: softprops/action-gh-release@v2
         with:
-          files: out/*
+          files: |
+            out/Browser-Hub-Windows-*.zip
+            out/Browser-Hub-Mac-*.zip
+            out/browser-hub-extension-*.zip
           body: |
-            ### Easiest: one zip with everything
+            Three downloads — pick one.
 
             - **Windows:** `Browser-Hub-Windows-*.zip` — the installer + the Chrome extension folder.
-            - **Mac:** `Browser-Hub-Mac-*.zip` — both dmgs + the Chrome extension folder.
-
-            ### Or download the pieces
-
-            - `Browser-Hub-Setup-*.exe` — Windows installer, just run it.
-            - `Browser-Hub-*-arm64.dmg` (Apple Silicon M1/M2/M3/M4) or `*-x64.dmg` (Intel) — open it, drag Browser Hub into Applications.
-            - `browser-hub-extension-*.zip` — the Chrome extension on its own.
+            - **Mac:** `Browser-Hub-Mac-*.zip` — the dmg for both chips (`arm64` = Apple Silicon M1/M2/M3/M4, `x64` = Intel) + the Chrome extension folder.
+            - **Extension only:** `browser-hub-extension-*.zip` — for a machine that already has the app.
 
             First launch on Mac: right-click Browser Hub -> Open (the app is not notarised). On macOS 15+, if it is still blocked: System Settings -> Privacy & Security -> Open Anyway.
 
