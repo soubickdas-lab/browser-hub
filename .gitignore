@@ -3,3 +3,4 @@ ui/dist/
 .wrangler/
 .dev.vars
 *.log
+_old-startup/

@@ -33,6 +33,34 @@ jobs:
       - run: npm run ${{ matrix.script }}
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          app="dist/win-unpacked/Browser Hub.exe"
+          out=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ELECTRON_RUN_AS_NODE=1 "$app" dist/win-unpacked/resources/hub/local-hub.js)
+          echo "$out"; echo "$out" | grep -q browser-hub-local
+          "$app" --hidden >/dev/null 2>&1 &
+          sleep 15
+          curl -sf http://127.0.0.1:8777/health | tee /dev/stderr | grep -q '"ok":true'
+      - name: Smoke test (Mac, from the dmg)
+        if: runner.os == 'macOS'
+        run: |
+          for dmg in dist/*.dmg; do
+            mnt=$(mktemp -d)
+            hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mnt"
+            codesign --verify --deep --strict --verbose=2 "$mnt/Browser Hub.app"
+            hdiutil detach "$mnt"
+          done
+          mnt=$(mktemp -d)
+          hdiutil attach dist/*-arm64.dmg -nobrowse -readonly -mountpoint "$mnt"
+          cp -R "$mnt/Browser Hub.app" /Applications/
+          hdiutil detach "$mnt"
+          app="/Applications/Browser Hub.app"
+          out=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ELECTRON_RUN_AS_NODE=1 "$app/Contents/MacOS/Browser Hub" "$app/Contents/Resources/hub/local-hub.js")
+          echo "$out"; echo "$out" | grep -q browser-hub-local
+          open "$app" --args --hidden; sleep 15
+          curl -sf http://127.0.0.1:8777/health | tee /dev/stderr | grep -q '"ok":true'
       - uses: actions/upload-artifact@v4
         with:
           name: installers-${{ matrix.os }}
