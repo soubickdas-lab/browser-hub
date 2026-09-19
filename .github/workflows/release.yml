@@ -71,16 +71,53 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: out
           merge-multiple: true
+      - name: Bundle the extension with each installer
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          cp -r extension browser-hub-extension
+          cat > browser-hub-extension/HOW-TO-LOAD.txt <<'TXT'
+          Load this extension in every Chrome you want Claude to reach:
+
+            1. Open  chrome://extensions
+            2. Turn on "Developer mode" (top right)
+            3. Click "Load unpacked" and pick THIS folder
+            4. It names itself after the profile's Google account.
+               Click the toolbar icon to check, or type your own name.
+
+          It talks to the Browser Hub app on 127.0.0.1:8777, so keep that app running.
+          TXT
+          zip -qr "out/browser-hub-extension-$v.zip" browser-hub-extension
+          mkdir -p win/extension mac/extension
+          cp -r browser-hub-extension/. win/extension/
+          cp -r browser-hub-extension/. mac/extension/
+          cp out/*.exe win/
+          cp out/*.dmg mac/
+          (cd win && zip -qr "../out/Browser-Hub-Windows-$v.zip" .)
+          (cd mac && zip -qr "../out/Browser-Hub-Mac-$v.zip" .)
+          ls -la out
       - uses: softprops/action-gh-release@v2
         with:
           files: out/*
           body: |
-            **Windows:** download `Browser-Hub-Setup-*.exe` and run it.
-            **Mac:** download the `.dmg` for your chip (`arm64` = Apple Silicon M1/M2/M3/M4, `x64` = Intel), open it, drag Browser Hub into Applications.
+            ### Easiest: one zip with everything
+
+            - **Windows:** `Browser-Hub-Windows-*.zip` — the installer + the Chrome extension folder.
+            - **Mac:** `Browser-Hub-Mac-*.zip` — both dmgs + the Chrome extension folder.
+
+            ### Or download the pieces
+
+            - `Browser-Hub-Setup-*.exe` — Windows installer, just run it.
+            - `Browser-Hub-*-arm64.dmg` (Apple Silicon M1/M2/M3/M4) or `*-x64.dmg` (Intel) — open it, drag Browser Hub into Applications.
+            - `browser-hub-extension-*.zip` — the Chrome extension on its own.
+
             First launch on Mac: right-click Browser Hub -> Open (the app is not notarised). On macOS 15+, if it is still blocked: System Settings -> Privacy & Security -> Open Anyway.
 
-            Then in the app: **Connect Claude**, and load the extension (Open extension folder) in each Chrome.
+            ### Then, once per machine
+
+            1. In the app: **Connect Claude**, and restart Claude.
+            2. In each Chrome: `chrome://extensions` -> Developer mode ON -> **Load unpacked** -> the `extension` folder (the app's **Open extension folder** points at its own copy).
