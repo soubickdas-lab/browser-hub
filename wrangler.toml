@@ -1,0 +1,19 @@
+name = "browser-hub"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+# Bind the custom domain in the Cloudflare dashboard (Workers > browser-hub >
+# Settings > Domains & Routes > Add custom domain: browsers.aipoint.online),
+# or uncomment and deploy with a zone-scoped route:
+# routes = [{ pattern = "browsers.aipoint.online", custom_domain = true }]
+
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "BrowserHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BrowserHub"]
+
+# OWNER_KEY is a secret, never a var:
+#   npx wrangler secret put OWNER_KEY

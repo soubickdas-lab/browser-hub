@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Browser Hub</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #0b1021;
+    color: #d7e0f0;
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+    padding: 18px;
+  }
+  h1 {
+    font-size: 16px;
+    margin: 0 0 2px;
+    color: #7ee787;
+  }
+  .sub { color: #7a869a; margin: 0 0 16px; font-size: 12px; }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .up { background: #113a24; color: #7ee787; }
+  .up .dot { background: #7ee787; }
+  .down { background: #3a1414; color: #ff9b9b; }
+  .down .dot { background: #ff9b9b; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1c2333; font-size: 12px; vertical-align: middle; }
+  th { color: #7a869a; font-weight: 600; }
+  .empty { color: #7a869a; padding: 14px 0; }
+  .name { color: #d7e0f0; font-weight: 600; }
+  .row-online .name { color: #7ee787; }
+  .fresh { color: #7ee787; }
+  .stale { color: #d09a3c; }
+  .offline { color: #5b6577; }
+
+  .row-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .row-online .row-dot { background: #7ee787; box-shadow: 0 0 6px #7ee78799; }
+  .row-offline .row-dot { background: #ff6b6b; }
+
+  .open-btn {
+    font: inherit;
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    border: 1px solid #2c3550;
+    background: transparent;
+    color: #9fb0d0;
+    cursor: pointer;
+  }
+  .open-btn:hover { border-color: #7ee787; color: #7ee787; }
+  .open-btn:disabled { opacity: 0.4; cursor: default; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover td { background: #10172b; }
+  tr.row-picked td { background: #16213d !important; }
+  tr.row-picked .name { text-decoration: underline; }
+
+  .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; max-width: 55%; }
+  .copy-btn {
+    font: inherit; font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 6px;
+    border: 1px solid #2f6f45; background: #113a24; color: #7ee787; cursor: pointer;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .copy-btn:hover { background: #17502f; }
+  .copy-btn.profile { border-color: #3b4f86; background: #16213d; color: #9fc1ff; }
+  .copy-btn.profile:hover { background: #1d2b50; }
+  .copy-btn.done { border-color: #7ee787; background: #7ee787; color: #0b1021; }
+  .hint { color: #5b6577; font-size: 11px; }
+  .setup { margin-top: 16px; border-top: 1px solid #1c2333; padding-top: 12px; }
+  .setup h2 { font-size: 12px; color: #7a869a; margin: 0 0 8px; font-weight: 600; }
+  .setup .btns { display: flex; flex-wrap: wrap; gap: 6px; }
+  .setup ol { margin: 10px 0 0; padding-left: 18px; color: #7a869a; font-size: 11px; }
+  .setup code { color: #9fc1ff; }
+  #setupMsg { white-space: pre-wrap; color: #7ee787; font-size: 11px; margin-top: 8px; }
+
+  .footer { margin-top: 18px; color: #4b5568; font-size: 11px; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div>
+      <h1>Browser Hub</h1>
+      <p class="sub">127.0.0.1:<span id="port">8777</span> — the local software behind the <code>browsers</code> MCP tools</p>
+    </div>
+    <div class="actions">
+      <button class="copy-btn" id="copyGeneral" title="Connect the hub and list every profile">Copy hub prompt</button>
+      <button class="copy-btn profile" id="copyProfile" style="display:none"></button>
+    </div>
+  </div>
+
+  <div id="pill" class="pill down"><span class="dot"></span><span id="pillText">checking…</span></div>
+
+  <table>
+    <thead>
+      <tr><th></th><th>name</th><th>last seen</th><th></th></tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div id="empty" class="empty" style="display:none">No known Chrome profiles found on this PC.</div>
+
+  <div class="hint">Profile ki row par click karo to upar uska connect prompt aa jayega.</div>
+
+  <div class="setup" id="setup" style="display:none">
+    <h2>Setup</h2>
+    <div class="btns">
+      <button class="open-btn" id="btnConnect">Connect Claude</button>
+      <button class="open-btn" id="btnMcp">Copy MCP config</button>
+      <button class="open-btn" id="btnExt">Open extension folder</button>
+    </div>
+    <div id="setupMsg"></div>
+    <ol>
+      <li><b>Connect Claude</b> dabao, phir Claude restart karo.</li>
+      <li>Har Chrome mein <code>chrome://extensions</code> &rarr; Developer mode ON &rarr; <b>Load unpacked</b> &rarr; extension folder.</li>
+      <li>Extension khud profile ka Google email naam bana leta hai; wo yahan list mein dikhega.</li>
+    </ol>
+  </div>
+
+  <div class="footer" id="updated"></div>
+
+<script>
+  const HUB = "http://127.0.0.1:8777";
+  const ONLINE_WINDOW_S = 70;
+
+  function generalPrompt() {
+    return `Browser hub connect kar (Browser Hub app, 127.0.0.1:8777).
+1. mcp__browsers__browser_list chalao aur mujhe saare connected profiles ki list dikhao (name, last seen).
+2. Agar (none) aaye ya browsers tools hi na milein, to check karo http://127.0.0.1:8777/health par hub kya dikha raha hai, aur Claude ke MCP settings mein \"browsers\" server registered hai ya nahi (Browser Hub app ka \"Connect Claude\" button ise register karta hai). Hub aur MCP alag instances hon to duplicate hub process band karke sahi wala chalao (koi bhi kaam ka process kill karne se pehle mujhse pooch lena).
+3. List dikhane ke baad ruk jao; kaunsa profile use karna hai wo main bataunga.
+Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
+  }
+
+  function buildPrompt(name) {
+    return `Browser hub connect kar. Chrome ka naam "${name}" hai (Browser Hub Bridge extension ka naam).
+1. mcp__browsers__browser_list chalao. Agar (none) aaye ya browsers tools hi na milein, to check karo http://127.0.0.1:8777/health par hub kya dikha raha hai, aur Claude ke MCP settings mein \"browsers\" server registered hai ya nahi (Browser Hub app ka \"Connect Claude\" button ise register karta hai).
+2. Hub aur MCP alag instances hon to duplicate hub process band karke sahi wala chalao (koi bhi kaam ka process kill karne se pehle mujhse pooch lena).
+3. Jab list mein naam aa jaye, browser_open se https://aipoint.online kholo aur confirm karo.
+Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
+  }
+
+  function copyText(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch {}
+    ta.remove();
+    return ok;
+  }
+
+  let selected = null;
+  let lastList = [];
+
+  function flash(btn, label) {
+    btn.classList.add("done");
+    btn.textContent = "copied ✓";
+    setTimeout(() => { btn.classList.remove("done"); btn.textContent = label(); }, 1200);
+  }
+
+  const profileLabel = () => `Copy ${selected} prompt`;
+
+  function renderPrompt() {
+    const btn = document.getElementById("copyProfile");
+    if (!btn.classList.contains("done")) btn.textContent = selected ? profileLabel() : "";
+    btn.style.display = selected ? "" : "none";
+    btn.title = selected || "";
+  }
+
+  function select(name) {
+    selected = selected === name ? null : name;
+    renderPrompt();
+    for (const tr of document.querySelectorAll("#rows tr")) {
+      tr.classList.toggle("row-picked", tr.querySelector(".name").textContent === selected);
+    }
+  }
+
+  document.getElementById("copyGeneral").addEventListener("click", (e) => {
+    if (copyText(generalPrompt())) flash(e.currentTarget, () => "Copy hub prompt");
+  });
+  document.getElementById("copyProfile").addEventListener("click", (e) => {
+    if (selected && copyText(buildPrompt(selected))) flash(e.currentTarget, profileLabel);
+  });
+
+  if (window.hubApp) {
+    const msg = document.getElementById("setupMsg");
+    const show = (t) => { msg.textContent = t; };
+    document.getElementById("setup").style.display = "";
+    document.getElementById("btnConnect").addEventListener("click", async () => {
+      show("Registering…");
+      show(await window.hubApp.connectClaude());
+    });
+    document.getElementById("btnMcp").addEventListener("click", async () => {
+      await window.hubApp.copyMcpConfig();
+      show("MCP config copied — paste it into your Claude MCP settings.");
+    });
+    document.getElementById("btnExt").addEventListener("click", async () => {
+      await window.hubApp.openExtensionFolder();
+      show("Extension folder: " + (await window.hubApp.extensionFolder()));
+    });
+  }
+
+  async function launch(name, btn) {
+    btn.disabled = true;
+    btn.textContent = "opening…";
+    try {
+      const res = await fetch(`${HUB}/launch`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (!data.ok) btn.textContent = "failed";
+    } catch {
+      btn.textContent = "failed";
+    }
+  }
+
+  async function tick() {
+    const pill = document.getElementById("pill");
+    const pillText = document.getElementById("pillText");
+    const rows = document.getElementById("rows");
+    const empty = document.getElementById("empty");
+    const updated = document.getElementById("updated");
+
+    try {
+      const [healthRes, profilesRes] = await Promise.all([
+        fetch(`${HUB}/health`, { cache: "no-store" }),
+        fetch(`${HUB}/profiles`, { cache: "no-store" }).catch(() => null),
+      ]);
+      const health = await healthRes.json();
+      const profiles = profilesRes && profilesRes.ok ? await profilesRes.json() : [];
+      document.getElementById("port").textContent = health.port;
+
+      pill.className = "pill up";
+      pillText.textContent = "hub running";
+
+      const connected = new Map((health.browsers || []).map((b) => [b.name, b]));
+      // Every known Chrome profile, plus any connected name that somehow
+      // isn't in the profile map (shouldn't normally happen, but never hide
+      // a live connection because of that).
+      const names = new Set([...profiles.map((p) => p.name), ...connected.keys()]);
+      const list = [...names].sort((a, b) => {
+        const aOn = connected.has(a), bOn = connected.has(b);
+        if (aOn !== bOn) return aOn ? -1 : 1;
+        return a.localeCompare(b);
+      });
+
+      rows.innerHTML = "";
+      empty.style.display = list.length ? "none" : "block";
+      for (const name of list) {
+        const b = connected.get(name);
+        const online = !!b;
+        const tr = document.createElement("tr");
+        tr.className = online ? "row-online" : "row-offline";
+        const lastSeen = online
+          ? `<span class="${b.lastSeenSecondsAgo <= 5 ? "fresh" : "stale"}">${b.lastSeenSecondsAgo}s ago</span>`
+          : `<span class="offline">offline</span>`;
+        tr.innerHTML = `
+          <td><span class="row-dot" title="${online ? "online" : "offline"}"></span></td>
+          <td class="name">${escapeHtml(name)}</td>
+          <td>${lastSeen}</td>
+          <td><button class="open-btn" ${online ? "disabled" : ""}>${online ? "open" : "open ↗"}</button></td>
+        `;
+        const btn = tr.querySelector(".open-btn");
+        if (!online) btn.addEventListener("click", () => launch(name, btn));
+        if (name === selected) tr.classList.add("row-picked");
+        tr.addEventListener("click", (e) => { if (!e.target.closest("button")) select(name); });
+        rows.appendChild(tr);
+      }
+      lastList = list;
+      if (selected && !list.includes(selected)) selected = null;
+      renderPrompt();
+      updated.textContent = "updated " + new Date().toLocaleTimeString();
+    } catch (err) {
+      pill.className = "pill down";
+      pillText.textContent = "hub not reachable — restarting…";
+      rows.innerHTML = "";
+      empty.style.display = "none";
+      updated.textContent = "last check " + new Date().toLocaleTimeString();
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+  }
+
+  tick();
+  setInterval(tick, 1500);
+</script>
+</body>
+</html>

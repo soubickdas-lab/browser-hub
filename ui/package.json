@@ -1,0 +1,70 @@
+{
+  "name": "browser-hub",
+  "productName": "Browser Hub",
+  "version": "1.0.0",
+  "description": "Lets Claude drive each Chrome profile by name through a local MCP hub.",
+  "author": "Soubick Das",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis --x64 --publish never",
+    "dist:mac": "electron-builder --mac dmg --x64 --arm64 --publish never"
+  },
+  "build": {
+    "appId": "com.soubickdas.browserhub",
+    "productName": "Browser Hub",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "icon.ico",
+      "icon.png",
+      "icon-512.png",
+      "tray-icon.png"
+    ],
+    "extraResources": [
+      {
+        "from": "../local-hub.js",
+        "to": "hub/local-hub.js"
+      },
+      {
+        "from": "../extension",
+        "to": "extension",
+        "filter": [
+          "**/*",
+          "!README.md"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "icon.ico",
+      "target": "nsis",
+      "artifactName": "Browser-Hub-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true
+    },
+    "mac": {
+      "icon": "icon-512.png",
+      "category": "public.app-category.developer-tools",
+      "target": "dmg",
+      "identity": null,
+      "artifactName": "Browser-Hub-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "Browser Hub ${version}"
+    }
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  }
+}
