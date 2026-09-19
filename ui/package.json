@@ -1,7 +1,7 @@
 {
   "name": "browser-hub",
   "productName": "Browser Hub",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Lets Claude drive each Chrome profile by name through a local MCP hub.",
   "author": "Soubick Das",
   "private": true,
@@ -9,7 +9,7 @@
   "scripts": {
     "start": "electron .",
     "dist:win": "electron-builder --win nsis --x64 --publish never",
-    "dist:mac": "electron-builder --mac dmg --x64 --arm64 --publish never"
+    "dist:mac": "electron-builder --mac dmg --x64 --publish never && electron-builder --mac dmg --arm64 --publish never"
   },
   "build": {
     "appId": "com.soubickdas.browserhub",

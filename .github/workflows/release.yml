@@ -42,7 +42,7 @@ jobs:
           echo "$out"; echo "$out" | grep -q browser-hub-local
           "$app" --hidden >/dev/null 2>&1 &
           sleep 15
-          curl -sf http://127.0.0.1:8777/health | tee /dev/stderr | grep -q '"ok":true'
+          health=$(curl -sf http://127.0.0.1:8777/health); echo "$health"; echo "$health" | grep -q '"ok":true'
       - name: Smoke test (Mac, from the dmg)
         if: runner.os == 'macOS'
         run: |
@@ -60,7 +60,7 @@ jobs:
           out=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' | ELECTRON_RUN_AS_NODE=1 "$app/Contents/MacOS/Browser Hub" "$app/Contents/Resources/hub/local-hub.js")
           echo "$out"; echo "$out" | grep -q browser-hub-local
           open "$app" --args --hidden; sleep 15
-          curl -sf http://127.0.0.1:8777/health | tee /dev/stderr | grep -q '"ok":true'
+          health=$(curl -sf http://127.0.0.1:8777/health); echo "$health"; echo "$health" | grep -q '"ok":true'
       - uses: actions/upload-artifact@v4
         with:
           name: installers-${{ matrix.os }}
