@@ -1,7 +1,7 @@
 {
   "name": "browser-hub",
   "productName": "Browser Hub",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Lets Claude drive each Chrome profile by name through a local MCP hub.",
   "author": "Soubick Das",
   "private": true,
@@ -56,14 +56,15 @@
       "icon": "icon-512.png",
       "category": "public.app-category.developer-tools",
       "target": "dmg",
-      "identity": "-",
+      "identity": null,
       "artifactName": "Browser-Hub-${version}-${arch}.${ext}",
       "hardenedRuntime": false,
       "gatekeeperAssess": false
     },
     "dmg": {
       "title": "Browser Hub ${version}"
-    }
+    },
+    "afterPack": "build/adhoc-sign.js"
   },
   "devDependencies": {
     "electron": "^33.0.0",
