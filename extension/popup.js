@@ -45,10 +45,11 @@ async function liveHubUrl(configured) {
 
 // Keep in sync with buildPrompt() in browser-hub/ui/index.html.
 function buildPrompt(name) {
-  return `Browser hub connect kar. Chrome ka naam "${name}" hai (Browser Hub Bridge extension ka naam).
-1. mcp__browsers__browser_list chalao. Agar (none) aaye ya browsers tools hi na milein, to check karo ${hubUrl}/health par hub kya dikha raha hai, aur Claude ke MCP settings mein \"browsers\" server registered hai ya nahi (Browser Hub app ka \"Connect Claude\" button ise register karta hai).
-2. Hub aur MCP alag instances hon to duplicate hub process band karke sahi wala chalao (koi bhi kaam ka process kill karne se pehle mujhse pooch lena).
-3. Jab list mein naam aa jaye, browser_open se https://aipoint.online kholo aur confirm karo.
+  return `Is Chrome ko use karna hai: "${name}" (Browser Hub me isi naam se juda hai).
+1. mcp__browsers__browser_list chalao aur batao "${name}" list me hai ya nahi.
+2. Agar nahi hai, to mujhe bata do. Us naam par koi aur call mat karna — offline profile par har call us Chrome ki ek nayi window khol deta hai.
+3. Agar browsers tools hi na dikhein: Browser Hub app kholo, Claude ko poora band karke uska "Connect Claude" dabao, phir Claude restart karo.
+4. Naam list me ho to ruk jao. Kya kaam karna hai wo main bataunga; har call me name: "${name}" hi bhejna.
 Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
 }
 
