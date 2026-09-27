@@ -433,6 +433,19 @@ async function runOp(op, args) {
       return { pong: true, marker: "claude-edit-2026-09-17-v2-dispatchclick" };
     }
 
+    // Bring this Chrome to the front — what the dashboard's "open" does for a
+    // profile that is already running.
+    case "focus": {
+      const windows = await chrome.windows.getAll();
+      if (!windows.length) {
+        const created = await chrome.windows.create({ focused: true });
+        return { windowId: created.id };
+      }
+      const target = windows.find((w) => w.focused) || windows[windows.length - 1];
+      await chrome.windows.update(target.id, { focused: true, drawAttention: true });
+      return { windowId: target.id };
+    }
+
     case "tabs.list": {
       const tabs = await chrome.tabs.query({});
       return tabs.map((t) => ({ id: t.id, title: t.title, url: t.url, active: t.active, windowId: t.windowId }));

@@ -29,7 +29,7 @@ const APP_MARKER = "browser-hub";
 let PORT = FIRST_PORT;
 const POLL_HOLD_MS = 25000; // how long a browser's poll waits before returning empty
 const CALL_TIMEOUT_MS = 45000;
-const ONLINE_WINDOW_MS = 70000; // a browser seen more recently than this is "connected"
+const ONLINE_WINDOW_MS = 40000; // a browser seen more recently than this is "connected"
 const LAUNCH_WAIT_MS = 45000; // how long to wait for a cold-launched Chrome to start polling
 const LAUNCH_POLL_MS = 1500;
 
@@ -148,6 +148,7 @@ function readBody(req) {
 }
 
 function send(res, status, obj) {
+  res._answered = true;
   const body = JSON.stringify(obj);
   res.writeHead(status, {
     "content-type": "application/json",
@@ -229,11 +230,12 @@ const server = http.createServer(async (req, res) => {
     if (!name) return send(res, 400, { error: "missing name" });
 
     remember(name);
-    browsers.set(name, {
+    const entry = {
       pc: body.pc || "",
       installId: body.installId || "",
       lastSeen: Date.now(),
-    });
+    };
+    browsers.set(name, entry);
 
     // Only one poll per browser is held; a second replaces the first.
     const older = waiting.get(name);
@@ -252,8 +254,12 @@ const server = http.createServer(async (req, res) => {
         send(res, 200, {});
       }
     }, POLL_HOLD_MS);
+    // Chrome closing tears down its held poll without an answer ever being
+    // sent, which is the earliest possible sign that this browser is gone —
+    // far better than waiting for it to age out of the online window.
     res.on("close", () => {
       if (waiting.get(name) === res) waiting.delete(name);
+      if (!res._answered && browsers.get(name) === entry) browsers.delete(name);
     });
     return;
   }

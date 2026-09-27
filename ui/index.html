@@ -106,6 +106,7 @@
       <p class="sub">127.0.0.1:<span id="port">8777</span> — the local software behind the <code>browsers</code> MCP tools</p>
     </div>
     <div class="actions">
+      <button class="copy-btn" id="btnRefresh" title="Ask the hub again right now">Refresh</button>
       <button class="copy-btn" id="copyGeneral" title="Connect the hub and list every profile">Copy hub prompt</button>
       <button class="copy-btn profile" id="copyProfile" style="display:none"></button>
     </div>
@@ -347,6 +348,24 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
     });
   }
 
+  // Already running: ask that Chrome to raise itself.
+  async function focusBrowser(name, btn) {
+    btn.disabled = true;
+    btn.textContent = "…";
+    try {
+      const res = await fetch(`${HUB}/control/call`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, op: "focus", args: {} }),
+      });
+      const data = await res.json();
+      btn.textContent = data.ok ? "open" : "failed";
+    } catch {
+      btn.textContent = "failed";
+    }
+    btn.disabled = false;
+  }
+
   async function launch(name, btn) {
     btn.disabled = true;
     btn.textContent = "opening…";
@@ -415,10 +434,10 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
           <td><span class="row-dot" title="${online ? "connected" : known.has(name) ? "has the extension, Chrome is closed" : "no extension in this profile yet"}"></span></td>
           <td class="name">${escapeHtml(name)}</td>
           <td>${lastSeen}</td>
-          <td><button class="open-btn" ${online ? "disabled" : ""}>${online ? "open" : "open ↗"}</button><button class="open-btn prompt-btn" title="Copy this profile's Claude prompt">prompt</button></td>
+          <td><button class="open-btn" title="${online ? "Bring this Chrome to the front" : "Start this Chrome"}">${online ? "open" : "open ↗"}</button><button class="open-btn prompt-btn" title="Copy this profile's Claude prompt">prompt</button></td>
         `;
         const btn = tr.querySelector(".open-btn");
-        if (!online) btn.addEventListener("click", () => launch(name, btn));
+        btn.addEventListener("click", () => (online ? focusBrowser(name, btn) : launch(name, btn)));
         if (name === selected) tr.classList.add("row-picked");
         tr.querySelector(".prompt-btn").addEventListener("click", () => pick(name));
         rows.appendChild(tr);
@@ -441,6 +460,14 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
     }[c]));
   }
+
+  document.getElementById("btnRefresh").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.textContent = "Refreshing…";
+    HUB = null; // re-find the hub too, in case it moved port
+    await tick();
+    btn.textContent = "Refresh";
+  });
 
   tick();
   setInterval(tick, 1500);
