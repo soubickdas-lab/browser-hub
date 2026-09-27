@@ -367,11 +367,10 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
       // isn't in the profile map (shouldn't normally happen, but never hide
       // a live connection because of that).
       const names = new Set([...profiles.map((p) => p.name), ...connected.keys()]);
-      const list = [...names].sort((a, b) => {
-        const aOn = connected.has(a), bOn = connected.has(b);
-        if (aOn !== bOn) return aOn ? -1 : 1;
-        return a.localeCompare(b);
-      });
+      // Profiles with the extension come first — connected, then merely
+      // closed — because those are the ones Claude can actually be sent to.
+      const rank = (name) => (connected.has(name) ? 0 : known.has(name) ? 1 : 2);
+      const list = [...names].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 
       rows.innerHTML = "";
       empty.style.display = list.length ? "none" : "block";
