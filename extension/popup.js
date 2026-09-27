@@ -46,10 +46,10 @@ async function liveHubUrl(configured) {
 // Keep in sync with buildPrompt() in browser-hub/ui/index.html.
 function buildPrompt(name) {
   return `Is Chrome ko use karna hai: "${name}" (Browser Hub me isi naam se juda hai).
-1. mcp__browsers__browser_list chalao aur batao "${name}" list me hai ya nahi.
-2. Agar nahi hai, to mujhe bata do. Us naam par koi aur call mat karna — offline profile par har call us Chrome ki ek nayi window khol deta hai.
-3. Agar browsers tools hi na dikhein: Browser Hub app kholo, Claude ko poora band karke uska "Connect Claude" dabao, phir Claude restart karo.
-4. Naam list me ho to ruk jao. Kya kaam karna hai wo main bataunga; har call me name: "${name}" hi bhejna.
+1. mcp__browsers__browser_list chalao. Naam list me ho to seedha aage badho.
+2. Naam list me na ho tab bhi ruko mat — wo Chrome band hai, aur Browser Hub use khud start kar deta hai. Bas jo kaam karna hai uska EK call bhejo, jaise mcp__browsers__browser_open { name: "${name}", url: "<url>" }, aur uska jawab ~90s tak shaanti se wait karo: wahi call Chrome ko launch karta hai.
+3. Pehla call timeout ho jaye to sirf EK baar dobara bhejo (tab tak Chrome khul chuka hoga). Phir bhi fail ho to mujhe batao — bar-bar call mat karna, har call ek nayi window khol sakta hai.
+4. Har call me name: "${name}" hi bhejna.
 Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
 }
 
