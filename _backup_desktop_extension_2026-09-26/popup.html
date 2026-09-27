@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Browser Hub Bridge</title>
+<style>
+  body {
+    width: 320px;
+    font: 13px/1.4 ui-sans-serif, system-ui, sans-serif;
+    padding: 14px;
+    color: #1b1b1b;
+  }
+  h1 { font-size: 14px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 12px; color: #666; }
+  label { display: block; margin: 10px 0 4px; font-weight: 600; }
+  input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font: inherit;
+  }
+  button {
+    margin-top: 12px;
+    width: 100%;
+    padding: 8px;
+    border: none;
+    border-radius: 6px;
+    background: #1a7f37;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.secondary { margin-top: 8px; background: #1f3b73; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  button.secondary:disabled { opacity: 0.5; cursor: default; }
+  #status {
+    margin-top: 10px;
+    padding: 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    white-space: pre-wrap;
+  }
+  #iid { margin-top: 8px; color: #999; font-size: 11px; }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: #666; font-size: 12px; }
+</style>
+</head>
+<body>
+  <h1>Browser Hub Bridge</h1>
+  <p class="sub">Name this Chrome so Claude can drive it by name via the local hub.</p>
+
+  <label for="tag">Name (this is what browser_list shows)</label>
+  <input id="tag" placeholder="e.g. DNS YT" autocomplete="off" />
+
+  <button id="save">Save</button>
+  <button id="copyPrompt" class="secondary">Copy Claude prompt</button>
+
+  <div id="status"></div>
+  <div id="iid"></div>
+
+  <details>
+    <summary>Advanced</summary>
+    <label for="hub">Hub URL</label>
+    <input id="hub" placeholder="http://127.0.0.1:8777" autocomplete="off" />
+  </details>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -63,52 +63,114 @@ function startHub() {
   });
 }
 
+// Every place a Claude on this machine keeps its MCP servers. Claude Desktop is
+// the one that matters on a machine with no CLI, so it is written directly —
+// no CLI, no PATH, nothing to find.
 function claudeDesktopConfigPath() {
   if (process.platform === "win32") return path.join(process.env.APPDATA || "", "Claude", "claude_desktop_config.json");
   if (process.platform === "darwin") return path.join(os.homedir(), "Library", "Application Support", "Claude", "claude_desktop_config.json");
   return path.join(os.homedir(), ".config", "Claude", "claude_desktop_config.json");
 }
 
-function registerClaudeDesktop() {
-  const file = claudeDesktopConfigPath();
-  if (!fs.existsSync(path.dirname(file))) return "Claude Desktop: not installed, skipped";
+// Adds/replaces mcpServers.browsers in a JSON config, keeping everything else.
+function writeMcpInto(file) {
   let config = {};
   if (fs.existsSync(file)) {
     try {
       config = JSON.parse(fs.readFileSync(file, "utf8"));
-    } catch {
-      return "Claude Desktop: config is not valid JSON, left alone";
+    } catch (err) {
+      return `${file}\n  not valid JSON, left alone`;
     }
     fs.copyFileSync(file, file + ".bak");
+  } else {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
   }
   config.mcpServers = config.mcpServers || {};
   config.mcpServers.browsers = mcpServerEntry();
   fs.writeFileSync(file, JSON.stringify(config, null, 2) + "\n");
-  return "Claude Desktop: registered (restart Claude Desktop)";
+  return `${file}\n  registered`;
+}
+
+function hasMcpEntry(file) {
+  try {
+    const config = JSON.parse(fs.readFileSync(file, "utf8"));
+    return !!(config.mcpServers && config.mcpServers.browsers);
+  } catch {
+    return false;
+  }
+}
+
+// A running Claude keeps its own copy of its config in memory and writes it
+// back whenever anything changes, which silently undoes our entry. So: write,
+// wait, check it is still there, and say plainly if it is not.
+async function writeAndVerify(app_, file) {
+  const written = writeMcpInto(file);
+  await new Promise((r) => setTimeout(r, 2500));
+  if (!hasMcpEntry(file)) {
+    return (
+      `${app_}: NOT registered\n${file}\n` +
+      `  ${app_} is running and rewrote this file. Quit it completely\n` +
+      "  (tray/menu-bar icon -> Quit, not just the window), then press Connect Claude again."
+    );
+  }
+  return `${app_} (restart it):\n` + written;
+}
+
+function registerClaudeDesktop() {
+  return writeAndVerify("Claude Desktop", claudeDesktopConfigPath());
+}
+
+// Optional extra: Claude Code, if this machine has the CLI. Not every machine does.
+function findClaudeCli() {
+  const home = os.homedir();
+  const candidates =
+    process.platform === "win32"
+      ? [
+          path.join(home, ".local", "bin", "claude.exe"),
+          path.join(home, ".local", "bin", "claude.cmd"),
+          path.join(process.env.APPDATA || "", "npm", "claude.cmd"),
+          path.join(home, ".bun", "bin", "claude.exe"),
+        ]
+      : [
+          path.join(home, ".local", "bin", "claude"),
+          "/opt/homebrew/bin/claude",
+          "/usr/local/bin/claude",
+          path.join(home, ".bun", "bin", "claude"),
+          path.join(home, ".npm-global", "bin", "claude"),
+        ];
+  return candidates.find((p) => fs.existsSync(p)) || null;
 }
 
 function registerClaudeCode() {
+  const cli = findClaudeCli();
+  // Node refuses to run a .cmd without a shell, and a shell mangles the JSON,
+  // so a .cmd install takes the config-file route below instead.
+  const runnable = cli && (process.platform !== "win32" || cli.endsWith(".exe"));
+  if (!runnable) {
+    // Same entry, written where `claude mcp add --scope user` would put it.
+    const file = path.join(os.homedir(), ".claude.json");
+    if (!fs.existsSync(file)) return "Claude Code: not installed, skipped";
+    return writeAndVerify("Claude Code", file);
+  }
   const json = JSON.stringify({ type: "stdio", ...mcpServerEntry() });
-  // A GUI app on macOS gets a minimal PATH that misses where the claude CLI lives.
-  const extra = [path.join(os.homedir(), ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin"];
-  const env = { ...process.env, PATH: [...extra, process.env.PATH || ""].join(path.delimiter) };
   return new Promise((resolve) => {
-    const run = (args, cb) =>
-      execFile("claude", args, { shell: true, windowsHide: true, timeout: 90000, env }, cb);
+    // No shell: the JSON and the paths reach the CLI exactly as written.
+    const run = (args, cb) => execFile(cli, args, { windowsHide: true, timeout: 90000 }, cb);
     run(["mcp", "remove", "--scope", "user", "browsers"], () => {
-      // shell:true on Windows needs the JSON quoted for cmd.exe.
-      const arg = process.platform === "win32" ? `"${json.replace(/"/g, '\\"')}"` : `'${json}'`;
-      run(["mcp", "add-json", "--scope", "user", "browsers", arg], (err, stdout, stderr) => {
-        if (err) resolve("Claude Code: `claude` CLI not found — use Copy MCP config instead");
-        else resolve("Claude Code: registered for all projects (restart Claude Code)");
+      run(["mcp", "add-json", "--scope", "user", "browsers", json], (err) => {
+        resolve(
+          err
+            ? `Claude Code: ${cli}\n  failed: ${String(err.message || err).split("\n")[0]}`
+            : "Claude Code (restart it):\n  registered for all projects"
+        );
       });
     });
   });
 }
 
 async function connectClaude() {
-  const lines = [await registerClaudeCode(), registerClaudeDesktop()];
-  return lines.join("\n");
+  const lines = [await registerClaudeDesktop(), await registerClaudeCode()];
+  return lines.join("\n\n");
 }
 
 function copyMcpConfig() {
@@ -119,6 +181,98 @@ async function connectClaudeWithDialog() {
   const result = await connectClaude();
   dialog.showMessageBox({ type: "info", title: "Browser Hub", message: "Connect Claude", detail: result });
 }
+
+// ------------------------------------------------------------------ updates
+// Releases carry one zip per platform (installer + extension), so the app
+// fetches the release, unpacks it and hands the installer over. No extra
+// update server, no second set of release files to keep in step.
+const REPO = "soubickdas-lab/browser-hub";
+
+function isNewer(remote, local) {
+  const parse = (v) => String(v).replace(/^v/, "").split(".").map((n) => parseInt(n, 10) || 0);
+  const [a, b] = [parse(remote), parse(local)];
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  }
+  return false;
+}
+
+async function latestRelease() {
+  const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+    headers: { accept: "application/vnd.github+json", "user-agent": "browser-hub-app" },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) throw new Error(`GitHub said ${res.status}`);
+  return res.json();
+}
+
+async function checkUpdate() {
+  const current = app.getVersion();
+  try {
+    const release = await latestRelease();
+    const version = String(release.tag_name || "").replace(/^v/, "");
+    return { current, version, available: isNewer(version, current), url: release.html_url };
+  } catch (err) {
+    return { current, error: String(err.message || err) };
+  }
+}
+
+function run(cmd, args) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { windowsHide: true, timeout: 300000 }, (err, stdout, stderr) =>
+      err ? reject(new Error(String(stderr || err.message).split("\n")[0])) : resolve(stdout)
+    );
+  });
+}
+
+async function installUpdate() {
+  const release = await latestRelease();
+  const version = String(release.tag_name || "").replace(/^v/, "");
+  if (!isNewer(version, app.getVersion())) return `Already on the latest version (${app.getVersion()}).`;
+
+  const wanted = process.platform === "win32" ? /^Browser-Hub-Windows-.*\.zip$/ : /^Browser-Hub-Mac-.*\.zip$/;
+  const asset = (release.assets || []).find((a) => wanted.test(a.name));
+  if (!asset) throw new Error(`Release ${version} has no download for this platform`);
+
+  const dir = path.join(app.getPath("temp"), `browser-hub-update-${version}`);
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(dir, { recursive: true });
+  const zip = path.join(dir, asset.name);
+
+  const res = await fetch(asset.browser_download_url, { headers: { "user-agent": "browser-hub-app" } });
+  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  fs.writeFileSync(zip, Buffer.from(await res.arrayBuffer()));
+
+  if (process.platform === "win32") {
+    await run("powershell", ["-NoProfile", "-Command", `Expand-Archive -LiteralPath '${zip}' -DestinationPath '${dir}' -Force`]);
+    const setup = fs.readdirSync(dir).find((f) => f.endsWith(".exe"));
+    if (!setup) throw new Error("No installer inside the downloaded zip");
+    // The installer replaces this app, so it has to outlive it.
+    spawn(path.join(dir, setup), ["/S"], { detached: true, stdio: "ignore" }).unref();
+    setTimeout(() => {
+      app.isQuitting = true;
+      app.quit();
+    }, 1500);
+    return `Installing ${version}… the app will close and reopen itself.`;
+  }
+
+  await run("/usr/bin/unzip", ["-o", zip, "-d", dir]);
+  const dmg = fs.readdirSync(dir).find((f) => f.endsWith(`-${process.arch}.dmg`)) ||
+    fs.readdirSync(dir).find((f) => f.endsWith(".dmg"));
+  if (!dmg) throw new Error("No dmg inside the downloaded zip");
+  await shell.openPath(path.join(dir, dmg));
+  return `Opened ${dmg} — drag Browser Hub into Applications, replacing the old one.`;
+}
+
+ipcMain.handle("hub:version", () => app.getVersion());
+ipcMain.handle("hub:checkUpdate", () => checkUpdate());
+ipcMain.handle("hub:installUpdate", async () => {
+  try {
+    return await installUpdate();
+  } catch (err) {
+    return `Update failed: ${String(err.message || err)}`;
+  }
+});
 
 ipcMain.handle("hub:connectClaude", () => connectClaude());
 ipcMain.handle("hub:copyMcpConfig", () => copyMcpConfig());

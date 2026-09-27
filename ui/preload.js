@@ -5,4 +5,7 @@ contextBridge.exposeInMainWorld("hubApp", {
   copyMcpConfig: () => ipcRenderer.invoke("hub:copyMcpConfig"),
   openExtensionFolder: () => ipcRenderer.invoke("hub:openExtensionFolder"),
   extensionFolder: () => ipcRenderer.invoke("hub:extensionFolder"),
+  version: () => ipcRenderer.invoke("hub:version"),
+  checkUpdate: () => ipcRenderer.invoke("hub:checkUpdate"),
+  installUpdate: () => ipcRenderer.invoke("hub:installUpdate"),
 });

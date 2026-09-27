@@ -2,17 +2,6 @@ const $ = (id) => document.getElementById(id);
 const DEFAULT_HUB = "http://127.0.0.1:8777";
 
 let installId = null;
-let hubUrl = DEFAULT_HUB;
-
-// The background half already knows which port the hub answered on.
-async function liveHubUrl(configured) {
-  if (configured) return configured.replace(/\/+$/, "");
-  try {
-    return (await chrome.runtime.sendMessage({ type: "hubUrl" })) || DEFAULT_HUB;
-  } catch {
-    return DEFAULT_HUB;
-  }
-}
 
 (async () => {
   const d = await chrome.storage.local.get(["tagName", "installId", "hubUrl"]);
@@ -36,18 +25,17 @@ async function liveHubUrl(configured) {
   }
   $("iid").textContent = "installId: " + installId;
 
-  hubUrl = await liveHubUrl(d.hubUrl);
   syncCopyButton();
   $("tag").addEventListener("input", syncCopyButton);
-  await refreshStatus(d.tagName, hubUrl);
+  await refreshStatus(d.tagName, d.hubUrl);
   $("tag").focus();
 })();
 
 // Keep in sync with buildPrompt() in browser-hub/ui/index.html.
 function buildPrompt(name) {
   return `Browser hub connect kar. Chrome ka naam "${name}" hai (Browser Hub Bridge extension ka naam).
-1. mcp__browsers__browser_list chalao. Agar (none) aaye ya browsers tools hi na milein, to check karo ${hubUrl}/health par hub kya dikha raha hai, aur Claude ke MCP settings mein \"browsers\" server registered hai ya nahi (Browser Hub app ka \"Connect Claude\" button ise register karta hai).
-2. Hub aur MCP alag instances hon to duplicate hub process band karke sahi wala chalao (koi bhi kaam ka process kill karne se pehle mujhse pooch lena).
+1. mcp__browsers__browser_list chalao. Agar (none) aaye, to check karo hub 127.0.0.1:8777/health par kya dikha raha hai, aur D:\\CLAUDE CHAT\\.mcp.json ka browsers server usi port/instance par hai ya nahi.
+2. Agar dono alag hain, to duplicate hub process band karke sahi wala chalao (koi bhi kaam ka process kill karne se pehle mujhse pooch lena).
 3. Jab list mein naam aa jaye, browser_open se https://aipoint.online kholo aur confirm karo.
 Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
 }
@@ -96,7 +84,7 @@ async function refreshStatus(tagName, hubUrl) {
       el.style.color = "#b45309";
     }
   } catch {
-    el.textContent = "Hub not reachable — open the Browser Hub app (it starts the hub).";
+    el.textContent = "Hub not reachable. Claude starts it — make sure Claude Code is running.";
     el.style.background = "#fff4e5";
     el.style.color = "#b45309";
   }

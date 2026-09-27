@@ -10,46 +10,9 @@
 // hub URL.
 
 const DEFAULT_HUB = "http://127.0.0.1:8777";
-// The hub takes 8777 unless this machine already had something there, so find
-// it by asking each port in the range who it is. The answer is remembered and
-// only re-checked when a poll stops working.
-const HUB_PORTS = Array.from({ length: 11 }, (_, i) => 8777 + i);
-const APP_MARKER = "browser-hub";
-
-async function isHub(url) {
-  try {
-    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(1500) });
-    const data = await res.json();
-    return !!data && (data.app === APP_MARKER || (data.ok === true && Array.isArray(data.browsers)));
-  } catch {
-    return false;
-  }
-}
-
-// A hub URL the owner typed in Advanced is used as-is, never second-guessed.
-async function discoverHub(configuredUrl) {
-  if (configuredUrl) return configuredUrl;
-  const { hubFound } = await chrome.storage.local.get("hubFound");
-  if (hubFound && (await isHub(hubFound))) return hubFound;
-  for (const port of HUB_PORTS) {
-    const url = `http://127.0.0.1:${port}`;
-    if (await isHub(url)) {
-      await chrome.storage.local.set({ hubFound: url });
-      return url;
-    }
-  }
-  return null;
-}
 const KEEPALIVE_ALARM = "browser-hub-bridge-keepalive";
 const POLL_ERROR_BACKOFF_MS = 4000;
 const NO_NAME_RECHECK_MS = 5000;
-// Every op gets at most this long. Commands run one at a time and the next
-// poll only starts after the current one ends, so a single hung op (an eval
-// awaiting a timer in a throttled background tab, a CDP screenshot of a tab
-// that never paints) used to silence this Chrome completely: the hub marked
-// it offline and answered later calls by launching the profile again, which
-// opened a fresh window per call. Kept below the hub's own 45s call timeout.
-const OP_TIMEOUT_MS = 40000;
 
 let looping = false;
 let lastPollOk = false;
@@ -80,10 +43,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     profileEmail().then(reply);
     return true;
   }
-  if (msg && msg.type === "hubUrl") {
-    getConfig().then((cfg) => reply(cfg.hubUrl));
-    return true;
-  }
 });
 
 async function getConfig() {
@@ -99,11 +58,10 @@ async function getConfig() {
       await chrome.storage.local.set({ tagName: email });
     }
   }
-  const configured = (stored.hubUrl || "").trim().replace(/\/+$/, "");
   return {
     tagName: (stored.tagName || "").trim(),
     installId: stored.installId,
-    hubUrl: (await discoverHub(configured)) || configured || DEFAULT_HUB,
+    hubUrl: (stored.hubUrl || DEFAULT_HUB).replace(/\/+$/, ""),
   };
 }
 
@@ -118,7 +76,7 @@ async function setBadge(state) {
   await chrome.action.setBadgeBackgroundColor({ color });
   const titles = {
     connected: "Browser Hub Bridge — connected",
-    down: "Browser Hub Bridge — hub not reachable (is the Browser Hub app running?)",
+    down: "Browser Hub Bridge — hub not reachable (is Claude running?)",
     noname: "Browser Hub Bridge — click to name this Chrome",
   };
   await chrome.action.setTitle({ title: titles[state] || "Browser Hub Bridge" });
@@ -154,8 +112,6 @@ async function pollLoop() {
     } catch (err) {
       lastPollOk = false;
       await setBadge("down");
-      // The hub may have restarted on a different port; look again next round.
-      await chrome.storage.local.remove("hubFound");
       await sleep(POLL_ERROR_BACKOFF_MS);
       continue;
     }
@@ -173,20 +129,11 @@ async function handleCommand(hubUrl, cmd) {
   let ok = true;
   let result;
   let error;
-  let timer;
   try {
-    result = await Promise.race([
-      runOp(op, args || {}),
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`${op} did not finish within ${OP_TIMEOUT_MS / 1000}s in the browser - abandoned`)), OP_TIMEOUT_MS);
-      }),
-    ]);
+    result = await runOp(op, args || {});
   } catch (err) {
     ok = false;
     error = String((err && err.message) || err);
-    if (/abandoned$/.test(error)) await releaseDebugger();
-  } finally {
-    clearTimeout(timer);
   }
   try {
     await fetch(`${hubUrl}/result`, {
@@ -201,24 +148,6 @@ async function handleCommand(hubUrl, cmd) {
 }
 
 // ------------------------------------------------------------------- ops
-
-// Every debugger session this worker opens, so an abandoned op can be cut
-// loose: detaching rejects its pending sendCommand and frees the tab.
-const attachedTargets = new Set();
-
-async function attachDebugger(target) {
-  await chrome.debugger.attach(target, "1.3");
-  attachedTargets.add(target.tabId);
-}
-
-async function detachDebugger(target) {
-  attachedTargets.delete(target.tabId);
-  await chrome.debugger.detach(target).catch(() => {});
-}
-
-async function releaseDebugger() {
-  for (const tabId of [...attachedTargets]) await detachDebugger({ tabId });
-}
 
 async function activeTabId() {
   const win = await chrome.windows.getLastFocused({ populate: true });
@@ -253,7 +182,7 @@ function waitForLoad(tabId, timeoutMs = 15000) {
 
 async function debuggerEval(tabId, code) {
   const target = { tabId };
-  await attachDebugger(target);
+  await chrome.debugger.attach(target, "1.3");
   try {
     const res = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
       expression: code,
@@ -270,13 +199,13 @@ async function debuggerEval(tabId, code) {
     if (r.description !== undefined) return r.description;
     return null;
   } finally {
-    await detachDebugger(target);
+    await chrome.debugger.detach(target).catch(() => {});
   }
 }
 
 async function debuggerSetFileInput(tabId, selector, files) {
   const target = { tabId };
-  await attachDebugger(target);
+  await chrome.debugger.attach(target, "1.3");
   try {
     await chrome.debugger.sendCommand(target, "DOM.enable");
     // Chrome's DOM domain needs its tree fetched once before DOM.requestNode
@@ -313,7 +242,7 @@ async function debuggerSetFileInput(tabId, selector, files) {
     });
     return { uploaded: true, files };
   } finally {
-    await detachDebugger(target);
+    await chrome.debugger.detach(target).catch(() => {});
   }
 }
 
@@ -339,7 +268,7 @@ async function debuggerUploadViaChooser(tabId, selector, files, timeoutMs = 8000
   }
 
   const target = { tabId };
-  await attachDebugger(target);
+  await chrome.debugger.attach(target, "1.3");
   try {
     await chrome.debugger.sendCommand(target, "Page.enable");
     await chrome.debugger.sendCommand(target, "Page.setInterceptFileChooserDialog", { enabled: true });
@@ -423,7 +352,7 @@ async function debuggerUploadViaChooser(tabId, selector, files, timeoutMs = 8000
     } catch {
       // ignore - tab may already be gone
     }
-    await detachDebugger(target);
+    await chrome.debugger.detach(target).catch(() => {});
   }
 }
 
@@ -602,11 +531,11 @@ async function runOp(op, args) {
       // args.method is any CDP method name, args.params its params object.
       const tabId = await resolveTabId(args);
       const target = { tabId };
-      await attachDebugger(target);
+      await chrome.debugger.attach(target, "1.3");
       try {
         return await chrome.debugger.sendCommand(target, args.method, args.params || {});
       } finally {
-        await detachDebugger(target);
+        await chrome.debugger.detach(target).catch(() => {});
       }
     }
 

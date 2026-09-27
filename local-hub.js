@@ -16,7 +16,17 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 
-const PORT = Number(process.env.BROWSER_HUB_PORT || 8777);
+// 8777 unless something else on this machine already owns it: then the next
+// free port in the range. Everything that talks to the hub (the extension, the
+// dashboard, a second hub process) finds it by probing the same range for a
+// /health that answers with our own marker, so no port is ever hard-coded on
+// any one machine.
+const PORT_RANGE_LENGTH = 11;
+// BROWSER_HUB_PORT moves where the search starts, it does not pin one port.
+const FIRST_PORT = Number(process.env.BROWSER_HUB_PORT || 8777);
+const PORT_CANDIDATES = Array.from({ length: PORT_RANGE_LENGTH }, (_, i) => FIRST_PORT + i);
+const APP_MARKER = "browser-hub";
+let PORT = FIRST_PORT;
 const POLL_HOLD_MS = 25000; // how long a browser's poll waits before returning empty
 const CALL_TIMEOUT_MS = 45000;
 const ONLINE_WINDOW_MS = 70000; // a browser seen more recently than this is "connected"
@@ -148,7 +158,9 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://127.0.0.1");
 
   if (url.pathname === "/health") {
-    return send(res, 200, { ok: true, port: PORT, browsers: listBrowsers() });
+    // `app` is how everything else tells our hub apart from whatever else
+    // might be sitting on this port.
+    return send(res, 200, { ok: true, app: APP_MARKER, port: PORT, browsers: listBrowsers() });
   }
 
   // Every Chrome profile on this machine Chrome itself knows about, not just
@@ -258,43 +270,80 @@ const server = http.createServer(async (req, res) => {
 });
 
 let bound = false;
-let retryTimer = null;
 const REBIND_RETRY_MS = 4000;
 
-server.on("listening", () => {
-  bound = true;
-  if (retryTimer) {
-    clearInterval(retryTimer);
-    retryTimer = null;
+// Is a browser-hub answering on this port, or is it somebody else's server?
+async function hubOnPort(port) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/health`, {
+      signal: AbortSignal.timeout(1500),
+    });
+    const data = await res.json();
+    // A hub from before the marker existed still answers /health this way.
+    return !!data && (data.app === APP_MARKER || (data.ok === true && Array.isArray(data.browsers)));
+  } catch {
+    return false;
   }
-  process.stderr.write(`browser-hub: listening on ${PORT}\n`);
-});
+}
 
-server.on("error", (err) => {
-  if (err.code === "EADDRINUSE") {
-    // Another hub already owns the port — almost always a second Claude
-    // session, or the always-on background copy. That one is serving the
-    // browsers; this process answers tool calls through it (see
-    // fetchBrowserList/fetchCallBrowser below) and keeps quietly retrying
-    // the bind so it takes over automatically the moment the port frees up
-    // — no restart of this process required.
-    bound = false;
-    process.stderr.write(
-      `browser-hub: port ${PORT} is already in use, so another hub is already running. ` +
-        `This instance will answer tool calls through it, and will take over automatically ` +
-        `if that one exits.\n`
-    );
-    if (!retryTimer) {
-      retryTimer = setInterval(() => {
-        if (!bound) server.listen(PORT, "127.0.0.1");
-      }, REBIND_RETRY_MS);
+function tryBind(port) {
+  return new Promise((resolve) => {
+    const onError = (err) => {
+      server.removeListener("listening", onListening);
+      resolve(err.code || "ERROR");
+    };
+    const onListening = () => {
+      server.removeListener("error", onError);
+      resolve(null);
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(port, "127.0.0.1");
+  });
+}
+
+// Bind the first free port in the range. A port already held by another
+// browser-hub means this process forwards its tool calls there instead (that
+// happens whenever a second Claude session starts its own copy); a port held
+// by an unrelated program is simply skipped, so an occupied 8777 no longer
+// breaks the whole hub.
+async function claimPort() {
+  for (const port of PORT_CANDIDATES) {
+    const err = await tryBind(port);
+    if (!err) {
+      PORT = port;
+      bound = true;
+      process.stderr.write(`browser-hub: listening on ${PORT}\n`);
+      return;
     }
-  } else {
-    process.stderr.write(`browser-hub: ${err.message}\n`);
+    if (err !== "EADDRINUSE") {
+      process.stderr.write(`browser-hub: port ${port}: ${err}\n`);
+      continue;
+    }
+    if (await hubOnPort(port)) {
+      PORT = port;
+      bound = false;
+      process.stderr.write(
+        `browser-hub: another hub already owns port ${port}. This instance answers tool ` +
+          `calls through it, and takes over automatically if that one exits.\n`
+      );
+      setTimeout(retryClaim, REBIND_RETRY_MS);
+      return;
+    }
+    process.stderr.write(`browser-hub: port ${port} is used by something else, trying the next\n`);
   }
-});
+  process.stderr.write(
+    `browser-hub: no free port in ${PORT_CANDIDATES[0]}-${PORT_CANDIDATES[PORT_CANDIDATES.length - 1]}\n`
+  );
+  setTimeout(retryClaim, REBIND_RETRY_MS);
+}
 
-server.listen(PORT, "127.0.0.1");
+async function retryClaim() {
+  if (bound) return;
+  await claimPort();
+}
+
+claimPort();
 
 function listBrowsers() {
   const now = Date.now();
@@ -537,14 +586,31 @@ const OPS = {
 // Always the local HTTP API, never the in-process Map — this is what makes
 // tool calls correct regardless of which local-hub.js process (there may be
 // several, one per open Claude session) happens to be answering MCP stdio.
+// The live hub may be on another port than the one this process last used —
+// it can restart, or be on a machine where 8777 was taken.
+async function hubPort() {
+  if (bound || (await hubOnPort(PORT))) return PORT;
+  for (const port of PORT_CANDIDATES) {
+    if (port !== PORT && (await hubOnPort(port))) {
+      PORT = port;
+      return port;
+    }
+  }
+  throw new Error(
+    `No Browser Hub is running on 127.0.0.1:` +
+      `${PORT_CANDIDATES[0]}-${PORT_CANDIDATES[PORT_CANDIDATES.length - 1]}. ` +
+      `Open the Browser Hub app.`
+  );
+}
+
 async function fetchBrowserList() {
-  const res = await fetch(`http://127.0.0.1:${PORT}/health`);
+  const res = await fetch(`http://127.0.0.1:${await hubPort()}/health`);
   const data = await res.json();
   return data.browsers || [];
 }
 
 async function fetchCallBrowser(target, op, opArgs) {
-  const res = await fetch(`http://127.0.0.1:${PORT}/control/call`, {
+  const res = await fetch(`http://127.0.0.1:${await hubPort()}/control/call`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name: target, op, args: opArgs }),

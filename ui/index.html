@@ -62,6 +62,7 @@
   }
   .open-btn:hover { border-color: #7ee787; color: #7ee787; }
   .open-btn:disabled { opacity: 0.4; cursor: default; }
+  .prompt-btn { margin-left: 4px; }
   tbody tr { cursor: pointer; }
   tbody tr:hover td { background: #10172b; }
   tr.row-picked td { background: #16213d !important; }
@@ -111,7 +112,7 @@
   </table>
   <div id="empty" class="empty" style="display:none">No known Chrome profiles found on this PC.</div>
 
-  <div class="hint">Profile ki row par click karo to upar uska connect prompt aa jayega.</div>
+  <div class="hint">Profile ki row par click = us profile ka prompt turant copy.</div>
 
   <div class="setup" id="setup" style="display:none">
     <h2>Setup</h2>
@@ -119,8 +120,10 @@
       <button class="open-btn" id="btnConnect">Connect Claude</button>
       <button class="open-btn" id="btnMcp">Copy MCP config</button>
       <button class="open-btn" id="btnExt">Open extension folder</button>
+      <button class="open-btn" id="btnUpdate">Check for updates</button>
     </div>
     <div id="setupMsg"></div>
+    <div id="versionLine" class="hint"></div>
     <ol>
       <li><b>Connect Claude</b> dabao, phir Claude restart karo.</li>
       <li>Har Chrome mein <code>chrome://extensions</code> &rarr; Developer mode ON &rarr; <b>Load unpacked</b> &rarr; extension folder.</li>
@@ -131,20 +134,52 @@
   <div class="footer" id="updated"></div>
 
 <script>
-  const HUB = "http://127.0.0.1:8777";
-  const ONLINE_WINDOW_S = 70;
+  // The hub takes 8777 unless this machine already had something there, so ask
+  // each port in the range who it is instead of assuming.
+  const HUB_PORTS = Array.from({ length: 11 }, (_, i) => 8777 + i);
+  let HUB = null;
+  let HUB_PORT = 8777;
+
+  async function askHub(url) {
+    try {
+      const res = await fetch(`${url}/health`, { cache: "no-store", signal: AbortSignal.timeout(1500) });
+      const data = await res.json();
+      const isHub = data && (data.app === "browser-hub" || (data.ok === true && Array.isArray(data.browsers)));
+      return isHub ? data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function findHub() {
+    if (HUB) {
+      const health = await askHub(HUB);
+      if (health) return health;
+    }
+    for (const port of HUB_PORTS) {
+      const url = `http://127.0.0.1:${port}`;
+      const health = await askHub(url);
+      if (health) {
+        HUB = url;
+        HUB_PORT = health.port;
+        return health;
+      }
+    }
+    HUB = null;
+    return null;
+  }
 
   function generalPrompt() {
-    return `Browser hub connect kar (Browser Hub app, 127.0.0.1:8777).
+    return `Browser hub connect kar (Browser Hub app, 127.0.0.1:${HUB_PORT}).
 1. mcp__browsers__browser_list chalao aur mujhe saare connected profiles ki list dikhao (name, last seen).
-2. Agar (none) aaye ya browsers tools hi na milein, to check karo http://127.0.0.1:8777/health par hub kya dikha raha hai, aur Claude ke MCP settings mein \"browsers\" server registered hai ya nahi (Browser Hub app ka \"Connect Claude\" button ise register karta hai). Hub aur MCP alag instances hon to duplicate hub process band karke sahi wala chalao (koi bhi kaam ka process kill karne se pehle mujhse pooch lena).
+2. Agar (none) aaye ya browsers tools hi na milein, to check karo http://127.0.0.1:${HUB_PORT}/health par hub kya dikha raha hai, aur Claude ke MCP settings mein \"browsers\" server registered hai ya nahi (Browser Hub app ka \"Connect Claude\" button ise register karta hai). Hub aur MCP alag instances hon to duplicate hub process band karke sahi wala chalao (koi bhi kaam ka process kill karne se pehle mujhse pooch lena).
 3. List dikhane ke baad ruk jao; kaunsa profile use karna hai wo main bataunga.
 Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
   }
 
   function buildPrompt(name) {
     return `Browser hub connect kar. Chrome ka naam "${name}" hai (Browser Hub Bridge extension ka naam).
-1. mcp__browsers__browser_list chalao. Agar (none) aaye ya browsers tools hi na milein, to check karo http://127.0.0.1:8777/health par hub kya dikha raha hai, aur Claude ke MCP settings mein \"browsers\" server registered hai ya nahi (Browser Hub app ka \"Connect Claude\" button ise register karta hai).
+1. mcp__browsers__browser_list chalao. Agar (none) aaye ya browsers tools hi na milein, to check karo http://127.0.0.1:${HUB_PORT}/health par hub kya dikha raha hai, aur Claude ke MCP settings mein \"browsers\" server registered hai ya nahi (Browser Hub app ka \"Connect Claude\" button ise register karta hai).
 2. Hub aur MCP alag instances hon to duplicate hub process band karke sahi wala chalao (koi bhi kaam ka process kill karne se pehle mujhse pooch lena).
 3. Jab list mein naam aa jaye, browser_open se https://aipoint.online kholo aur confirm karo.
 Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
@@ -181,12 +216,16 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
     btn.title = selected || "";
   }
 
-  function select(name) {
-    selected = selected === name ? null : name;
+  // One click on a row copies that profile's prompt; the button above stays
+  // for a second copy without hunting for the row again.
+  function pick(name) {
+    selected = name;
     renderPrompt();
     for (const tr of document.querySelectorAll("#rows tr")) {
       tr.classList.toggle("row-picked", tr.querySelector(".name").textContent === selected);
     }
+    const btn = document.getElementById("copyProfile");
+    if (copyText(buildPrompt(name))) flash(btn, profileLabel);
   }
 
   document.getElementById("copyGeneral").addEventListener("click", (e) => {
@@ -211,6 +250,29 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
     document.getElementById("btnExt").addEventListener("click", async () => {
       await window.hubApp.openExtensionFolder();
       show("Extension folder: " + (await window.hubApp.extensionFolder()));
+    });
+
+    const version = document.getElementById("versionLine");
+    const updateBtn = document.getElementById("btnUpdate");
+    window.hubApp.version().then((v) => { version.textContent = "Browser Hub v" + v; });
+    updateBtn.addEventListener("click", async () => {
+      if (updateBtn.dataset.ready) {
+        updateBtn.disabled = true;
+        show("Downloading " + updateBtn.dataset.ready + "…");
+        show(await window.hubApp.installUpdate());
+        updateBtn.disabled = false;
+        return;
+      }
+      updateBtn.disabled = true;
+      show("Checking GitHub…");
+      const info = await window.hubApp.checkUpdate();
+      updateBtn.disabled = false;
+      if (info.error) return show("Update check failed: " + info.error);
+      version.textContent = "Browser Hub v" + info.current;
+      if (!info.available) return show("Up to date (v" + info.current + ").");
+      updateBtn.dataset.ready = info.version;
+      updateBtn.textContent = "Update to v" + info.version;
+      show("v" + info.version + " is out. Click again to download and install it.");
     });
   }
 
@@ -238,11 +300,9 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
     const updated = document.getElementById("updated");
 
     try {
-      const [healthRes, profilesRes] = await Promise.all([
-        fetch(`${HUB}/health`, { cache: "no-store" }),
-        fetch(`${HUB}/profiles`, { cache: "no-store" }).catch(() => null),
-      ]);
-      const health = await healthRes.json();
+      const health = await findHub();
+      if (!health) throw new Error("no hub");
+      const profilesRes = await fetch(`${HUB}/profiles`, { cache: "no-store" }).catch(() => null);
       const profiles = profilesRes && profilesRes.ok ? await profilesRes.json() : [];
       document.getElementById("port").textContent = health.port;
 
@@ -274,12 +334,13 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
           <td><span class="row-dot" title="${online ? "online" : "offline"}"></span></td>
           <td class="name">${escapeHtml(name)}</td>
           <td>${lastSeen}</td>
-          <td><button class="open-btn" ${online ? "disabled" : ""}>${online ? "open" : "open ↗"}</button></td>
+          <td><button class="open-btn" ${online ? "disabled" : ""}>${online ? "open" : "open ↗"}</button><button class="open-btn prompt-btn" title="Copy this profile's Claude prompt">prompt</button></td>
         `;
         const btn = tr.querySelector(".open-btn");
         if (!online) btn.addEventListener("click", () => launch(name, btn));
         if (name === selected) tr.classList.add("row-picked");
-        tr.addEventListener("click", (e) => { if (!e.target.closest("button")) select(name); });
+        tr.addEventListener("click", (e) => { if (!e.target.closest("button")) pick(name); });
+        tr.querySelector(".prompt-btn").addEventListener("click", () => pick(name));
         rows.appendChild(tr);
       }
       lastList = list;
@@ -288,7 +349,7 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
       updated.textContent = "updated " + new Date().toLocaleTimeString();
     } catch (err) {
       pill.className = "pill down";
-      pillText.textContent = "hub not reachable — restarting…";
+      pillText.textContent = "hub not reachable — starting…";
       rows.innerHTML = "";
       empty.style.display = "none";
       updated.textContent = "last check " + new Date().toLocaleTimeString();

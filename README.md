@@ -18,9 +18,11 @@ starts at login and lives in the tray / menu bar.
 
 Then, once per machine:
 
-1. In the app: **Connect Claude**. It registers the `browsers` MCP server for Claude
-   Code (all projects, via the `claude` CLI) and for Claude Desktop. Restart Claude.
-   No `claude` CLI? Use **Copy MCP config** and paste it into your MCP settings.
+1. In the app: **Connect Claude**. It writes the `browsers` MCP server straight into
+   Claude Desktop's config (no CLI needed), and into Claude Code's too when that is
+   installed. **Quit Claude first** — a running Claude rewrites its own config file and
+   would undo the entry; the app checks afterwards and tells you if that happened.
+   Paths are worked out on the machine it runs on, so nothing is hard-coded.
 2. In each Chrome: `chrome://extensions` → Developer mode ON → **Load unpacked** →
    the folder from **Open extension folder**.
 3. The extension names itself after the profile's Google account (Chrome sign-in,
@@ -29,9 +31,16 @@ Then, once per machine:
 Badge green = talking to the hub. Amber = hub not running (open the app).
 Red = no name yet (not signed in anywhere — type one in the popup).
 
-**Prompts for Claude:** the app's **Copy hub prompt** (connect + list profiles);
-click a profile row for **Copy <email> prompt**. The extension popup has the same
-per-profile button.
+**Prompts for Claude:** the app's **Copy hub prompt** (connect + list profiles); a
+click on any profile row — or its **prompt** button — copies that profile's prompt
+straight away. The extension popup has the same per-profile button.
+
+**Updates:** **Check for updates** in the app compares this build against the latest
+GitHub release, then downloads and installs it (on a Mac it opens the dmg to drag).
+
+**Ports:** the hub takes 8777, or the next free port up to 8787 when something else
+on that machine already has it. The extension, the dashboard and Claude all find it
+by asking each port in that range who it is, so a busy 8777 breaks nothing.
 
 ## Build the installers
 
@@ -103,8 +112,8 @@ curl http://127.0.0.1:8777/health
 Answers while the Browser Hub app (or a Claude session) is running. `browsers: []` means no Chrome
 has been named yet.
 
-Port clash? Set `BROWSER_HUB_PORT` in `.mcp.json` and put the same URL in each
-extension's Advanced → Hub URL.
+`BROWSER_HUB_PORT` moves where that search starts, if 8777-8787 is wrong for a
+machine. An extension can also be pinned to one hub in its Advanced → Hub URL.
 
 ## Files
 
