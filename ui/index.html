@@ -62,18 +62,21 @@
   }
   .open-btn:hover { border-color: #7ee787; color: #7ee787; }
   .open-btn:disabled { opacity: 0.4; cursor: default; }
-  .prompt-btn { margin-left: 4px; }
+  .prompt-btn { margin-left: 6px; }
+  td:last-child { white-space: nowrap; text-align: right; }
+  .open-btn { white-space: nowrap; }
   tbody tr { cursor: pointer; }
   tbody tr:hover td { background: #10172b; }
   tr.row-picked td { background: #16213d !important; }
   tr.row-picked .name { text-decoration: underline; }
 
-  .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
-  .actions { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex: none; max-width: 55%; }
+  .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .topbar > div:first-child { min-width: 0; }
+  .actions { display: flex; flex-direction: column; align-items: stretch; gap: 6px; flex: 0 1 auto; min-width: 0; max-width: 300px; }
   .copy-btn {
     font: inherit; font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 6px;
     border: 1px solid #2f6f45; background: #113a24; color: #7ee787; cursor: pointer;
-    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    width: 100%; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .copy-btn:hover { background: #17502f; }
   .copy-btn.profile { border-color: #3b4f86; background: #16213d; color: #9fc1ff; }

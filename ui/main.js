@@ -288,8 +288,9 @@ function createWindow(show) {
     return mainWindow;
   }
   mainWindow = new BrowserWindow({
-    width: 520,
-    height: 680,
+    width: 760,
+    height: 820,
+    minWidth: 620,
     title: "Browser Hub",
     icon: path.join(__dirname, process.platform === "win32" ? "icon.ico" : "icon-512.png"),
     backgroundColor: "#0b1021",
