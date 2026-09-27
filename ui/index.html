@@ -209,10 +209,10 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
 
   function buildPrompt(name) {
     return `Is Chrome ko use karna hai: "${name}" (Browser Hub me isi naam se juda hai).
-1. mcp__browsers__browser_list chalao. Naam list me ho to seedha aage badho.
-2. Naam list me na ho tab bhi ruko mat — wo Chrome band hai, aur Browser Hub use khud start kar deta hai. Bas jo kaam karna hai uska EK call bhejo, jaise mcp__browsers__browser_open { name: "${name}", url: "<url>" }, aur uska jawab ~90s tak shaanti se wait karo: wahi call Chrome ko launch karta hai.
-3. Pehla call timeout ho jaye to sirf EK baar dobara bhejo (tab tak Chrome khul chuka hoga). Phir bhi fail ho to mujhe batao — bar-bar call mat karna, har call ek nayi window khol sakta hai.
-4. Har call me name: "${name}" hi bhejna.
+1. mcp__browsers__browser_open { name: "${name}", url: "https://nextalerts.in" } chalao aur jawab ka ~90s tak shaanti se wait karo.
+2. Wo Chrome band bhi ho to chalega: yahi call use khud start karta hai. Isliye pehle list dekhne ki zaroorat nahi — seedha ye call bhejo.
+3. Call timeout ho jaye to sirf EK baar dobara bhejo (tab tak Chrome khul chuka hoga). Phir bhi fail ho to mcp__browsers__browser_list chalao aur mujhe batao kya aaya. Bar-bar call mat karna.
+4. Page khulne par title/URL bata do. Aage har call me name: "${name}" hi bhejna.
 Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
   }
 
@@ -359,7 +359,17 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
         body: JSON.stringify({ name, op: "focus", args: {} }),
       });
       const data = await res.json();
-      btn.textContent = data.ok ? "open" : "failed";
+      if (data.ok) {
+        btn.textContent = "open";
+      } else {
+        // Older extension in that Chrome: let Chrome itself raise the profile.
+        await fetch(`${HUB}/launch`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        btn.textContent = "open";
+      }
     } catch {
       btn.textContent = "failed";
     }
