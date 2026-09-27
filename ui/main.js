@@ -50,6 +50,23 @@ function mcpServerEntry() {
   };
 }
 
+// Restart the hub this app runs. A hub owned by some other process (an older
+// install, another Claude session) is left alone — this one just comes back
+// and takes the port if that one has since let go of it.
+async function restartHub() {
+  const before = await livePort();
+  if (hubChild) hubChild.kill();
+  else startHub();
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 700));
+    const port = await livePort();
+    if (port) {
+      return `Hub restarted — 127.0.0.1:${port}` + (before && before !== port ? ` (was ${before})` : "");
+    }
+  }
+  return "Hub did not come back within 14s — press Diagnose.";
+}
+
 function startHub() {
   hubChild = spawn(process.execPath, [HUB_JS], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
@@ -383,6 +400,7 @@ ipcMain.handle("hub:paths", async () => ({
 }));
 
 ipcMain.handle("hub:copyText", (_e, text) => clipboard.writeText(String(text || "")));
+ipcMain.handle("hub:restartHub", () => restartHub());
 
 ipcMain.handle("hub:diagnose", async () => {
   const report = await diagnose();

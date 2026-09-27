@@ -67,7 +67,6 @@
   .prompt-btn { margin-left: 6px; }
   td:last-child { white-space: nowrap; text-align: right; }
   .open-btn { white-space: nowrap; }
-  tbody tr { cursor: pointer; }
   tbody tr:hover td { background: #10172b; }
   tr.row-picked td { background: #16213d !important; }
   tr.row-picked .name { text-decoration: underline; }
@@ -122,7 +121,7 @@
   </table>
   <div id="empty" class="empty" style="display:none">No known Chrome profiles found on this PC.</div>
 
-  <div class="hint">Profile ki row par click = us profile ka prompt turant copy.</div>
+  <div class="hint">prompt = us profile ka Claude prompt copy. open = wo Chrome khol do.</div>
 
   <div class="setup" id="setup" style="display:none">
     <h2>Setup</h2>
@@ -132,6 +131,7 @@
       <button class="open-btn" id="btnExt">Open extension folder</button>
       <button class="open-btn" id="btnUpdate">Check for updates</button>
       <button class="open-btn" id="btnDiag">Diagnose</button>
+      <button class="open-btn" id="btnRestart">Restart hub</button>
     </div>
     <div id="setupMsg"></div>
     <div class="facts" id="facts"></div>
@@ -151,6 +151,22 @@
   const HUB_PORTS = Array.from({ length: 11 }, (_, i) => 8777 + i);
   let HUB = null;
   let HUB_PORT = 8777;
+
+  const KNOWN_KEY = "browser-hub.known";
+
+  function remember(fromHub, connectedNow) {
+    let saved = [];
+    try {
+      saved = JSON.parse(localStorage.getItem(KNOWN_KEY) || "[]");
+    } catch {}
+    const all = new Set([...saved, ...fromHub, ...connectedNow]);
+    if (all.size !== saved.length) {
+      try {
+        localStorage.setItem(KNOWN_KEY, JSON.stringify([...all]));
+      } catch {}
+    }
+    return all;
+  }
 
   async function askHub(url) {
     try {
@@ -266,6 +282,14 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
       show("Extension folder: " + (await window.hubApp.extensionFolder()));
     });
 
+    document.getElementById("btnRestart").addEventListener("click", async (e) => {
+      e.currentTarget.disabled = true;
+      show("Restarting the hub…");
+      show(await window.hubApp.restartHub());
+      e.currentTarget.disabled = false;
+      HUB = null;
+    });
+
     document.getElementById("btnDiag").addEventListener("click", async () => {
       show("Checking…");
       show((await window.hubApp.diagnose()) + "\n\n(copied — paste it to Claude)");
@@ -354,15 +378,18 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
         fetch(`${HUB}/known`, { cache: "no-store" }).catch(() => null),
       ]);
       const profiles = profilesRes && profilesRes.ok ? await profilesRes.json() : [];
-      // Profiles that have run the extension at some point: only those can be
-      // "offline". The rest are just Chrome profiles with nothing installed.
-      const known = new Set(knownRes && knownRes.ok ? await knownRes.json() : []);
+      const fromHub = knownRes && knownRes.ok ? await knownRes.json() : [];
       document.getElementById("port").textContent = health.port;
 
       pill.className = "pill up";
       pillText.textContent = "hub running";
 
       const connected = new Map((health.browsers || []).map((b) => [b.name, b]));
+      // Profiles that have run the extension at some point: only those can be
+      // "offline". The rest are just Chrome profiles with nothing installed.
+      // Remembered here as well as in the hub, so this still works against a
+      // hub too old to answer /known.
+      const known = remember(fromHub, [...connected.keys()]);
       // Every known Chrome profile, plus any connected name that somehow
       // isn't in the profile map (shouldn't normally happen, but never hide
       // a live connection because of that).
@@ -393,7 +420,6 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
         const btn = tr.querySelector(".open-btn");
         if (!online) btn.addEventListener("click", () => launch(name, btn));
         if (name === selected) tr.classList.add("row-picked");
-        tr.addEventListener("click", (e) => { if (!e.target.closest("button")) pick(name); });
         tr.querySelector(".prompt-btn").addEventListener("click", () => pick(name));
         rows.appendChild(tr);
       }

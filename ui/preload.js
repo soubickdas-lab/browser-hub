@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld("hubApp", {
   openExtensionFolder: () => ipcRenderer.invoke("hub:openExtensionFolder"),
   extensionFolder: () => ipcRenderer.invoke("hub:extensionFolder"),
   diagnose: () => ipcRenderer.invoke("hub:diagnose"),
+  restartHub: () => ipcRenderer.invoke("hub:restartHub"),
   paths: () => ipcRenderer.invoke("hub:paths"),
   copyText: (text) => ipcRenderer.invoke("hub:copyText", text),
   version: () => ipcRenderer.invoke("hub:version"),
