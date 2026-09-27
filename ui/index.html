@@ -49,6 +49,8 @@
   .row-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
   .row-online .row-dot { background: #7ee787; box-shadow: 0 0 6px #7ee78799; }
   .row-offline .row-dot { background: #ff6b6b; }
+  .row-unknown .row-dot { background: #39415a; }
+  .row-unknown .name { color: #8d97ad; }
 
   .open-btn {
     font: inherit;
@@ -347,8 +349,14 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
     try {
       const health = await findHub();
       if (!health) throw new Error("no hub");
-      const profilesRes = await fetch(`${HUB}/profiles`, { cache: "no-store" }).catch(() => null);
+      const [profilesRes, knownRes] = await Promise.all([
+        fetch(`${HUB}/profiles`, { cache: "no-store" }).catch(() => null),
+        fetch(`${HUB}/known`, { cache: "no-store" }).catch(() => null),
+      ]);
       const profiles = profilesRes && profilesRes.ok ? await profilesRes.json() : [];
+      // Profiles that have run the extension at some point: only those can be
+      // "offline". The rest are just Chrome profiles with nothing installed.
+      const known = new Set(knownRes && knownRes.ok ? await knownRes.json() : []);
       document.getElementById("port").textContent = health.port;
 
       pill.className = "pill up";
@@ -371,12 +379,14 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
         const b = connected.get(name);
         const online = !!b;
         const tr = document.createElement("tr");
-        tr.className = online ? "row-online" : "row-offline";
+        tr.className = online ? "row-online" : known.has(name) ? "row-offline" : "row-unknown";
         const lastSeen = online
           ? `<span class="${b.lastSeenSecondsAgo <= 5 ? "fresh" : "stale"}">${b.lastSeenSecondsAgo}s ago</span>`
-          : `<span class="offline">offline</span>`;
+          : known.has(name)
+            ? `<span class="offline">offline</span>`
+            : "";
         tr.innerHTML = `
-          <td><span class="row-dot" title="${online ? "online" : "offline"}"></span></td>
+          <td><span class="row-dot" title="${online ? "connected" : known.has(name) ? "has the extension, Chrome is closed" : "no extension in this profile yet"}"></span></td>
           <td class="name">${escapeHtml(name)}</td>
           <td>${lastSeen}</td>
           <td><button class="open-btn" ${online ? "disabled" : ""}>${online ? "open" : "open ↗"}</button><button class="open-btn prompt-btn" title="Copy this profile's Claude prompt">prompt</button></td>

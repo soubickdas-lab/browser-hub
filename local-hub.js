@@ -94,6 +94,30 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Which profiles have ever had the extension in them. A profile in this list
+// that is not polling right now is genuinely offline (Chrome closed); a
+// profile that was never here has no extension, so it has no status to show.
+const KNOWN_FILE = path.join(HOME, ".browser-hub", "known.json");
+
+function loadKnown() {
+  try {
+    return new Set(JSON.parse(fs.readFileSync(KNOWN_FILE, "utf8")).names || []);
+  } catch {
+    return new Set();
+  }
+}
+
+const known = loadKnown();
+
+function remember(name) {
+  if (known.has(name)) return;
+  known.add(name);
+  try {
+    fs.mkdirSync(path.dirname(KNOWN_FILE), { recursive: true });
+    fs.writeFileSync(KNOWN_FILE, JSON.stringify({ names: [...known] }, null, 2));
+  } catch {}
+}
+
 const browsers = new Map(); // name -> { pc, installId, lastSeen }
 const waiting = new Map(); // name -> http response held open
 const queues = new Map(); // name -> [command]
@@ -166,6 +190,11 @@ const server = http.createServer(async (req, res) => {
   // Every Chrome profile on this machine Chrome itself knows about, not just
   // the ones currently polling — lets a dashboard show every account with a
   // live online/offline dot instead of only the ones already connected.
+  // Profiles that have ever run the extension, whether they are up or not.
+  if (url.pathname === "/known") {
+    return send(res, 200, [...known]);
+  }
+
   if (url.pathname === "/profiles") {
     const map = readChromeProfileMap();
     return send(
@@ -199,6 +228,7 @@ const server = http.createServer(async (req, res) => {
     const name = String(body.name || "").trim();
     if (!name) return send(res, 400, { error: "missing name" });
 
+    remember(name);
     browsers.set(name, {
       pc: body.pc || "",
       installId: body.installId || "",
