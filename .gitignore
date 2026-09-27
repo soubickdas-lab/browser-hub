@@ -4,3 +4,4 @@ ui/dist/
 .dev.vars
 *.log
 _old-startup/
+_backup_*/
