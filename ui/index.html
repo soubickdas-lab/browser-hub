@@ -88,7 +88,12 @@
   .setup .btns { display: flex; flex-wrap: wrap; gap: 6px; }
   .setup ol { margin: 10px 0 0; padding-left: 18px; color: #7a869a; font-size: 11px; }
   .setup code { color: #9fc1ff; }
-  #setupMsg { white-space: pre-wrap; color: #7ee787; font-size: 11px; margin-top: 8px; }
+  #setupMsg { white-space: pre-wrap; color: #7ee787; font-size: 11px; margin-top: 8px; font-family: inherit; }
+  .facts { margin-top: 12px; border-top: 1px solid #1c2333; padding-top: 10px; }
+  .fact { display: flex; gap: 8px; padding: 3px 0; font-size: 11px; cursor: pointer; }
+  .fact:hover .fact-v { color: #7ee787; }
+  .fact-k { color: #7a869a; flex: none; width: 74px; }
+  .fact-v { color: #9fc1ff; word-break: break-all; }
 
   .footer { margin-top: 18px; color: #4b5568; font-size: 11px; }
 </style>
@@ -124,9 +129,11 @@
       <button class="open-btn" id="btnMcp">Copy MCP config</button>
       <button class="open-btn" id="btnExt">Open extension folder</button>
       <button class="open-btn" id="btnUpdate">Check for updates</button>
+      <button class="open-btn" id="btnDiag">Diagnose</button>
     </div>
     <div id="setupMsg"></div>
-    <div id="versionLine" class="hint"></div>
+    <div class="facts" id="facts"></div>
+    <div id="versionLine" class="hint">Click any line above to copy it.</div>
     <ol>
       <li><b>Connect Claude</b> dabao, phir Claude restart karo.</li>
       <li>Har Chrome mein <code>chrome://extensions</code> &rarr; Developer mode ON &rarr; <b>Load unpacked</b> &rarr; extension folder.</li>
@@ -256,9 +263,43 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
       show("Extension folder: " + (await window.hubApp.extensionFolder()));
     });
 
+    document.getElementById("btnDiag").addEventListener("click", async () => {
+      show("Checking…");
+      show((await window.hubApp.diagnose()) + "\n\n(copied — paste it to Claude)");
+    });
+
+    // Real paths and the live port, read off this machine — this is what Claude
+    // needs when its MCP entry has to be checked or written by hand.
+    async function showFacts() {
+      const p = await window.hubApp.paths();
+      const rows = [
+        ["app", p.app],
+        ["hub", p.hub],
+        ["port", p.port ? `127.0.0.1:${p.port}` : "not running"],
+        ["extension", p.extension],
+      ];
+      const box = document.getElementById("facts");
+      box.innerHTML = "";
+      for (const [k, v] of rows) {
+        const row = document.createElement("div");
+        row.className = "fact";
+        row.innerHTML = `<span class="fact-k">${k}</span><span class="fact-v"></span>`;
+        row.querySelector(".fact-v").textContent = v;
+        row.title = "Click to copy";
+        row.addEventListener("click", () => {
+          window.hubApp.copyText(v);
+          show(`Copied: ${v}`);
+        });
+        box.appendChild(row);
+      }
+      document.getElementById("versionLine").textContent =
+        `Browser Hub v${p.version} — click any line above to copy it.`;
+    }
+    showFacts();
+    setInterval(showFacts, 10000);
+
     const version = document.getElementById("versionLine");
     const updateBtn = document.getElementById("btnUpdate");
-    window.hubApp.version().then((v) => { version.textContent = "Browser Hub v" + v; });
     updateBtn.addEventListener("click", async () => {
       if (updateBtn.dataset.ready) {
         updateBtn.disabled = true;
@@ -272,7 +313,6 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
       const info = await window.hubApp.checkUpdate();
       updateBtn.disabled = false;
       if (info.error) return show("Update check failed: " + info.error);
-      version.textContent = "Browser Hub v" + info.current;
       if (!info.available) return show("Up to date (v" + info.current + ").");
       updateBtn.dataset.ready = info.version;
       updateBtn.textContent = "Update to v" + info.version;

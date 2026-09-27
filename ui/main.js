@@ -105,12 +105,13 @@ function hasMcpEntry(file) {
 // wait, check it is still there, and say plainly if it is not.
 async function writeAndVerify(app_, file) {
   const written = writeMcpInto(file);
+  keepRegistered(file);
   await new Promise((r) => setTimeout(r, 2500));
   if (!hasMcpEntry(file)) {
     return (
-      `${app_}: NOT registered\n${file}\n` +
-      `  ${app_} is running and rewrote this file. Quit it completely\n` +
-      "  (tray/menu-bar icon -> Quit, not just the window), then press Connect Claude again."
+      `${app_}: ${app_} is running and rewrote this file.\n${file}\n` +
+      `  Browser Hub puts the entry back and keeps it there — quit ${app_}\n` +
+      "  completely (tray/menu-bar icon -> Quit), then start it again."
     );
   }
   return `${app_} (restart it):\n` + written;
@@ -118,6 +119,47 @@ async function writeAndVerify(app_, file) {
 
 function registerClaudeDesktop() {
   return writeAndVerify("Claude Desktop", claudeDesktopConfigPath());
+}
+
+// Claude rewrites its config from the copy it loaded at startup, so an entry
+// added while it is running disappears again — including on the way out, which
+// is why registering once is not enough. Watching the file and putting the
+// entry back means the next start always finds it.
+const KEEP_FILE = () => path.join(app.getPath("userData"), "keep-registered.json");
+
+function keptFiles() {
+  try {
+    return JSON.parse(fs.readFileSync(KEEP_FILE(), "utf8")).files || [];
+  } catch {
+    return [];
+  }
+}
+
+function keepRegistered(file) {
+  const files = keptFiles();
+  if (!files.includes(file)) {
+    files.push(file);
+    fs.writeFileSync(KEEP_FILE(), JSON.stringify({ files }, null, 2));
+  }
+  watchConfig(file);
+}
+
+const watched = new Set();
+function watchConfig(file) {
+  if (watched.has(file) || !fs.existsSync(path.dirname(file))) return;
+  watched.add(file);
+  let timer = null;
+  fs.watch(path.dirname(file), (_event, name) => {
+    if (name && name !== path.basename(file)) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (fs.existsSync(file) && !hasMcpEntry(file)) {
+        try {
+          writeMcpInto(file);
+        } catch {}
+      }
+    }, 1500);
+  });
 }
 
 // Optional extra: Claude Code, if this machine has the CLI. Not every machine does.
@@ -264,6 +306,90 @@ async function installUpdate() {
   return `Opened ${dmg} — drag Browser Hub into Applications, replacing the old one.`;
 }
 
+// ---------------------------------------------------------------- diagnose
+// One report that answers "why can't Claude see my browsers", so a machine
+// this app is not sitting in front of can still be fixed.
+async function diagnose() {
+  const out = [];
+  const entry = mcpServerEntry();
+  out.push(`Browser Hub v${app.getVersion()}  ${process.platform}-${process.arch}`);
+  out.push(`app:  ${process.execPath}`);
+  out.push(`hub:  ${HUB_JS}${fs.existsSync(HUB_JS) ? "" : "   <- MISSING"}`);
+
+  let live = null;
+  for (let port = 8777; port <= 8787; port++) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(800) });
+      const data = await res.json();
+      const mine = data.app === "browser-hub" || (data.ok === true && Array.isArray(data.browsers));
+      out.push(
+        `port ${port}: ${mine ? `hub, ${(data.browsers || []).length} browser(s) connected` : "something else"}`
+      );
+      if (mine && !live) live = data;
+    } catch {}
+  }
+  if (!live) out.push("port 8777-8787: no hub answered — the hub is not running");
+  else if (!(live.browsers || []).length) {
+    out.push("No Chrome is polling: load the extension (Open extension folder) and reload it in chrome://extensions");
+  } else {
+    out.push("browsers: " + live.browsers.map((b) => `${b.name} (${b.lastSeenSecondsAgo}s)`).join(", "));
+  }
+
+  for (const [label, file] of [
+    ["Claude Desktop", claudeDesktopConfigPath()],
+    ["Claude Code", path.join(os.homedir(), ".claude.json")],
+  ]) {
+    if (!fs.existsSync(file)) {
+      out.push(`${label}: no config at ${file} (not installed?)`);
+      continue;
+    }
+    let config;
+    try {
+      config = JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch {
+      out.push(`${label}: config is not valid JSON — ${file}`);
+      continue;
+    }
+    const found = config.mcpServers && config.mcpServers.browsers;
+    if (!found) out.push(`${label}: NO browsers entry — press Connect Claude (with ${label} closed)`);
+    else if (found.command !== entry.command)
+      out.push(`${label}: browsers entry points elsewhere:\n    ${found.command}\n  should be:\n    ${entry.command}`);
+    else out.push(`${label}: browsers entry OK`);
+  }
+
+  out.push(`extension folder: ${extensionFolder()}`);
+  return out.join("\n");
+}
+
+// Where this machine actually put everything, read off this machine.
+async function livePort() {
+  for (let port = 8777; port <= 8787; port++) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(800) });
+      const data = await res.json();
+      if (data.app === "browser-hub" || (data.ok === true && Array.isArray(data.browsers))) return port;
+    } catch {}
+  }
+  return null;
+}
+
+ipcMain.handle("hub:paths", async () => ({
+  version: app.getVersion(),
+  app: process.execPath,
+  hub: HUB_JS,
+  extension: extensionFolder(),
+  port: await livePort(),
+  mcp: JSON.stringify({ mcpServers: { browsers: mcpServerEntry() } }, null, 2),
+}));
+
+ipcMain.handle("hub:copyText", (_e, text) => clipboard.writeText(String(text || "")));
+
+ipcMain.handle("hub:diagnose", async () => {
+  const report = await diagnose();
+  clipboard.writeText(report);
+  return report;
+});
+
 ipcMain.handle("hub:version", () => app.getVersion());
 ipcMain.handle("hub:checkUpdate", () => checkUpdate());
 ipcMain.handle("hub:installUpdate", async () => {
@@ -347,6 +473,7 @@ app.whenReady().then(() => {
     app.setLoginItemSettings({ openAtLogin: true, args: ["--hidden"] });
   }
   startHub();
+  for (const file of keptFiles()) watchConfig(file);
   extensionFolder();
   createTray();
   createWindow(!startHidden);
