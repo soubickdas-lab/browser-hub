@@ -361,14 +361,17 @@ Browser picker mat kholna aur mujhse kaunsa Chrome pooch mat.`;
       const data = await res.json();
       if (data.ok) {
         btn.textContent = "open";
+        btn.title = "Bring this Chrome to the front";
       } else {
-        // Older extension in that Chrome: let Chrome itself raise the profile.
-        await fetch(`${HUB}/launch`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ name }),
-        });
-        btn.textContent = "open";
+        // Never fall back to launching Chrome here: that opens ANOTHER window
+        // of a profile that is already running.
+        btn.textContent = "reload ext";
+        btn.title =
+          "This Chrome still runs an older extension. Open chrome://extensions in it " +
+          "and press reload on Browser Hub Bridge.";
+        setTimeout(() => {
+          btn.textContent = "open";
+        }, 4000);
       }
     } catch {
       btn.textContent = "failed";
