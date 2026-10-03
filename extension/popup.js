@@ -14,33 +14,46 @@ async function liveHubUrl(configured) {
   }
 }
 
+// Everything the popup shows comes from local storage first, so it is usable
+// the moment it opens; anything that needs the network fills in afterwards.
 (async () => {
-  const d = await chrome.storage.local.get(["tagName", "installId", "hubUrl"]);
-  if (!d.tagName) {
-    let email = "";
-    try {
-      email = await chrome.runtime.sendMessage({ type: "profileEmail" });
-    } catch {}
-    if (email) {
-      d.tagName = email;
-      await chrome.storage.local.set({ tagName: email });
-    }
-  }
+  const d = await chrome.storage.local.get(["tagName", "installId", "hubUrl", "hubFound"]);
   $("tag").value = d.tagName || "";
   $("hub").value = d.hubUrl || "";
+  hubUrl = (d.hubUrl || d.hubFound || DEFAULT_HUB).replace(/\/+$/, "");
 
   installId = d.installId;
   if (!installId) {
     installId = crypto.randomUUID();
-    await chrome.storage.local.set({ installId, createdAt: new Date().toISOString() });
+    chrome.storage.local.set({ installId, createdAt: new Date().toISOString() });
   }
   $("iid").textContent = "installId: " + installId;
 
-  hubUrl = await liveHubUrl(d.hubUrl);
   syncCopyButton();
   $("tag").addEventListener("input", syncCopyButton);
-  await refreshStatus(d.tagName, hubUrl);
   $("tag").focus();
+
+  if (!d.tagName) {
+    chrome.runtime
+      .sendMessage({ type: "profileEmail" })
+      .then((email) => {
+        if (!email || $("tag").value.trim()) return;
+        $("tag").value = email;
+        chrome.storage.local.set({ tagName: email });
+        syncCopyButton();
+        refreshStatus(email, hubUrl);
+      })
+      .catch(() => {});
+  }
+
+  refreshStatus(d.tagName, hubUrl);
+  if (!d.hubUrl && !d.hubFound) {
+    liveHubUrl("").then((url) => {
+      hubUrl = url;
+      syncCopyButton();
+      refreshStatus($("tag").value.trim(), hubUrl);
+    });
+  }
 })();
 
 // Keep in sync with buildPrompt() in browser-hub/ui/index.html.
@@ -82,7 +95,7 @@ async function refreshStatus(tagName, hubUrl) {
 
   const base = (hubUrl || DEFAULT_HUB).replace(/\/+$/, "");
   try {
-    const res = await fetch(`${base}/health`, { method: "GET" });
+    const res = await fetch(`${base}/health`, { method: "GET", signal: AbortSignal.timeout(1500) });
     const data = await res.json();
     const mine = (data.browsers || []).find((b) => b.name === tagName);
     if (mine) {

@@ -16,9 +16,9 @@ const DEFAULT_HUB = "http://127.0.0.1:8777";
 const HUB_PORTS = Array.from({ length: 11 }, (_, i) => 8777 + i);
 const APP_MARKER = "browser-hub";
 
-async function isHub(url) {
+async function isHub(url, timeoutMs = 500) {
   try {
-    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(1500) });
+    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(timeoutMs) });
     const data = await res.json();
     return !!data && (data.app === APP_MARKER || (data.ok === true && Array.isArray(data.browsers)));
   } catch {
@@ -27,18 +27,19 @@ async function isHub(url) {
 }
 
 // A hub URL the owner typed in Advanced is used as-is, never second-guessed.
+// A found hub is trusted until a poll to it fails (pollLoop then forgets it),
+// so the normal path costs no request at all; a fresh search asks every port
+// at once rather than one after another.
 async function discoverHub(configuredUrl) {
   if (configuredUrl) return configuredUrl;
   const { hubFound } = await chrome.storage.local.get("hubFound");
-  if (hubFound && (await isHub(hubFound))) return hubFound;
-  for (const port of HUB_PORTS) {
-    const url = `http://127.0.0.1:${port}`;
-    if (await isHub(url)) {
-      await chrome.storage.local.set({ hubFound: url });
-      return url;
-    }
-  }
-  return null;
+  if (hubFound) return hubFound;
+  const urls = HUB_PORTS.map((port) => `http://127.0.0.1:${port}`);
+  const answers = await Promise.all(urls.map((url) => isHub(url)));
+  const url = urls[answers.indexOf(true)];
+  if (!url) return null;
+  await chrome.storage.local.set({ hubFound: url });
+  return url;
 }
 const KEEPALIVE_ALARM = "browser-hub-bridge-keepalive";
 const POLL_ERROR_BACKOFF_MS = 4000;
@@ -53,6 +54,12 @@ const OP_TIMEOUT_MS = 40000;
 
 let looping = false;
 let lastPollOk = false;
+let lastEmailCheck = 0;
+const EMAIL_RECHECK_MS = 5 * 60 * 1000;
+// A poll the hub answers at once with nothing to do (another copy of this
+// extension using the same name, an older hub) must not turn into a loop
+// that hammers the hub as fast as Chrome can send requests.
+const MIN_POLL_GAP_MS = 1000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -92,7 +99,8 @@ async function getConfig() {
     stored.installId = crypto.randomUUID();
     await chrome.storage.local.set({ installId: stored.installId, createdAt: new Date().toISOString() });
   }
-  if (!(stored.tagName || "").trim()) {
+  if (!(stored.tagName || "").trim() && Date.now() - lastEmailCheck > EMAIL_RECHECK_MS) {
+    lastEmailCheck = Date.now();
     const email = await profileEmail();
     if (email) {
       stored.tagName = email;
@@ -107,7 +115,10 @@ async function getConfig() {
   };
 }
 
+let badgeState = null;
 async function setBadge(state) {
+  if (state === badgeState) return;
+  badgeState = state;
   const map = {
     connected: ["", "#1a7f37"],
     down: ["...", "#b45309"],
@@ -142,6 +153,7 @@ async function pollLoop() {
     }
 
     let data;
+    const pollStarted = Date.now();
     try {
       const res = await fetch(`${cfg.hubUrl}/poll`, {
         method: "POST",
@@ -162,6 +174,8 @@ async function pollLoop() {
 
     if (data && data.cmd) {
       await handleCommand(cfg.hubUrl, data.cmd);
+    } else if (Date.now() - pollStarted < MIN_POLL_GAP_MS) {
+      await sleep(MIN_POLL_GAP_MS);
     }
     // else: the hub held the poll open (no command) and returned empty —
     // loop straight back into the next poll.
